@@ -15,7 +15,7 @@ export type LeadRow = {
 }
 
 type AssignMode = 'manual' | 'round_robin'
-type AssignSource = 'selected' | 'pool'
+type AssignSource = 'selected' | 'pool' | 'owner'
 
 export default function AdminLeadsTable({
   title,
@@ -46,25 +46,18 @@ export default function AdminLeadsTable({
   const [rows, setRows] = useState<LeadRow[]>([])
   const [total, setTotal] = useState<number>(0)
 
-  // seleção
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  // ações de atribuição
   const [assignMode, setAssignMode] = useState<AssignMode>('manual')
   const [assignSource, setAssignSource] = useState<AssignSource>('selected')
 
-  // quantidade total solicitada
-  const [qty, setQty] = useState<string>('') // input controlado
-
-  // lote (usado quando source=pool)
+  const [qty, setQty] = useState<string>('')
   const [batchSize, setBatchSize] = useState<string>('1000')
 
   const [onlyPool, setOnlyPool] = useState<boolean>(true)
 
-  // manual
-  const [toOwnerId, setToOwnerId] = useState<string>('') // vendedor selecionado (manual)
+  const [toOwnerId, setToOwnerId] = useState<string>('')
 
-  // round robin
   const [useAllSellers, setUseAllSellers] = useState<boolean>(true)
   const [sellerIds, setSellerIds] = useState<string[]>([])
 
@@ -80,7 +73,12 @@ export default function AdminLeadsTable({
     return m
   }, [ownerOptions])
 
-  // quando filtros mudam, volta pra página 1 e limpa seleção/resultado
+  const ownerLabelFromFilter = useMemo(() => {
+    if (ownerId === 'ALL') return 'Todos'
+    if (ownerId === 'POOL') return 'POOL'
+    return ownerLabelById.get(ownerId) ?? ownerId
+  }, [ownerId, ownerLabelById])
+
   useEffect(() => {
     setPage(1)
     setSelectedIds(new Set())
@@ -88,7 +86,6 @@ export default function AdminLeadsTable({
     setAssignProgress(null)
   }, [ownerId, status, search, pageSize])
 
-  // Quando troca para source=pool, força POOL (visual) e onlyPool=true
   useEffect(() => {
     if (assignSource === 'pool') {
       setOwnerId('POOL')
@@ -122,7 +119,6 @@ export default function AdminLeadsTable({
     })()
   }, [reloadPage])
 
-  // helpers seleção
   const selectedCount = selectedIds.size
 
   const isRowSelected = useCallback((id: string) => selectedIds.has(id), [selectedIds])
@@ -163,6 +159,13 @@ export default function AdminLeadsTable({
     return sellerIds
   }, [useAllSellers, sellerIds, ownerOptions])
 
+  // ✅ NOVO: remove automaticamente o vendedor de origem quando Origem=owner
+  const effectiveSellerIdsNoSource = useMemo(() => {
+    if (assignSource !== 'owner') return effectiveSellerIds
+    if (ownerId === 'ALL' || ownerId === 'POOL') return effectiveSellerIds
+    return effectiveSellerIds.filter((id) => id !== ownerId)
+  }, [assignSource, effectiveSellerIds, ownerId])
+
   const parsePositiveInt = useCallback((s: string) => {
     if (!s.trim()) return null
     const n = Number(s)
@@ -173,46 +176,22 @@ export default function AdminLeadsTable({
   const qtyParsed = useMemo(() => parsePositiveInt(qty), [qty, parsePositiveInt])
   const batchParsed = useMemo(() => parsePositiveInt(batchSize), [batchSize, parsePositiveInt])
 
-  const validateCommon = useCallback(() => {
-    setAssignResult(null)
-    setAssignProgress(null)
-
-    if (qtyParsed !== null && Number.isNaN(qtyParsed)) {
-      alert('Quantidade inválida. Use um número inteiro maior que 0.')
-      return false
+  const requireQtyAndBatchForAuto = useCallback(() => {
+    if (qtyParsed === null || Number.isNaN(qtyParsed)) {
+      alert('Informe uma quantidade válida.')
+      return null
     }
-
-    if (assignSource === 'pool') {
-      if (qtyParsed === null) {
-        alert('Informe a quantidade de leads do POOL que serão enviados.')
-        return false
-      }
-      if (batchParsed === null || Number.isNaN(batchParsed)) {
-        alert('Tamanho do lote inválido. Use um número inteiro maior que 0 (ex.: 1000).')
-        return false
-      }
+    if (batchParsed === null || Number.isNaN(batchParsed)) {
+      alert('Informe um lote válido (ex.: 1000).')
+      return null
     }
+    return { total: qtyParsed, batch: batchParsed }
+  }, [batchParsed, qtyParsed])
 
-    if (assignSource === 'selected' && selectedIds.size === 0) {
-      alert('Selecione pelo menos 1 lead (ou mude a origem para "POOL").')
-      return false
-    }
-
-    if (assignMode === 'round_robin') {
-      if (effectiveSellerIds.length === 0) {
-        alert('Selecione pelo menos 1 vendedor (ou marque "Usar todos").')
-        return false
-      }
-    } else {
-      // manual pode ser "devolver ao pool", então toOwnerId pode ser vazio
-      // (a ação "Atribuir" manual exige vendedor; a ação "Devolver" não)
-    }
-
-    return true
-  }, [assignMode, assignSource, batchParsed, effectiveSellerIds, qtyParsed, selectedIds.size])
-  const rpcAssign = useCallback(
+  // ---------- RPC helpers ----------
+  const rpcAssignLeads = useCallback(
     async (args: {
-      source: AssignSource
+      source: 'selected' | 'pool'
       limit: number | null
       leadIds: string[]
       mode: AssignMode
@@ -224,19 +203,15 @@ export default function AdminLeadsTable({
         p_source: args.source,
         p_limit: args.limit,
         p_lead_ids: args.leadIds,
-
         p_status: status === 'all' ? null : status,
         p_search: search.trim() ? search.trim() : null,
-
         p_mode: args.mode,
         p_to_owner_id: args.mode === 'manual' ? args.toOwner : null,
         p_seller_ids: args.mode === 'round_robin' ? effectiveSellerIds : [],
-
-        p_only_if_pool: args.source === 'pool' ? true : (args.onlyIfPoolOverride ?? onlyPool),
+        p_only_if_pool: args.source === 'pool' ? true : args.onlyIfPoolOverride ?? onlyPool,
       })
 
       if (error) throw error
-
       const row = Array.isArray(data) ? data[0] : data
       return {
         assigned: Number(row?.assigned_count ?? 0),
@@ -246,151 +221,328 @@ export default function AdminLeadsTable({
     [companyId, effectiveSellerIds, onlyPool, search, status]
   )
 
-  const doAssignSelectedManualToSeller = useCallback(async () => {
-    if (!validateCommon()) return
-    if (!toOwnerId) {
-      alert('Selecione um vendedor para atribuir.')
-      return
-    }
-
-    setAssigning(true)
-    try {
-      const leadIds = Array.from(selectedIds)
-      const res = await rpcAssign({
-        source: 'selected',
-        limit: qtyParsed === null ? null : qtyParsed,
-        leadIds,
-        mode: 'manual',
-        toOwner: toOwnerId,
+  const rpcReassignOwnerLeads = useCallback(
+    async (args: { fromOwnerId: string; toOwnerId: string | null; limit: number }) => {
+      const { data, error } = await supabase.rpc('reassign_owner_leads', {
+        p_company_id: companyId,
+        p_from_owner_id: args.fromOwnerId,
+        p_to_owner_id: args.toOwnerId,
+        p_limit: args.limit,
+        p_status: status === 'all' ? null : status,
+        p_search: search.trim() ? search.trim() : null,
       })
+      if (error) throw error
+      const row = Array.isArray(data) ? data[0] : data
+      return { changed: Number(row?.changed_count ?? 0) }
+    },
+    [companyId, search, status]
+  )
 
-      setAssignResult(`Atribuídos: ${res.assigned} | Ignorados: ${res.skipped}` + (onlyPool ? ' (não estavam no POOL)' : ''))
-      clearSelection()
-      await reloadPage()
-    } catch (e: any) {
-      alert('Erro ao atribuir: ' + (e?.message ?? String(e)))
-    } finally {
-      setAssigning(false)
-      setAssignProgress(null)
-    }
-  }, [clearSelection, onlyPool, qtyParsed, reloadPage, rpcAssign, selectedIds, toOwnerId, validateCommon])
+  const rpcRoundRobinFromOwner = useCallback(
+    async (args: { fromOwnerId: string; limit: number; sellerIds: string[] }) => {
+      const { data, error } = await supabase.rpc('round_robin_from_owner_leads', {
+        p_company_id: companyId,
+        p_from_owner_id: args.fromOwnerId,
+        p_seller_ids: args.sellerIds,
+        p_limit: args.limit,
+        p_status: status === 'all' ? null : status,
+        p_search: search.trim() ? search.trim() : null,
+      })
+      if (error) throw error
+      const row = Array.isArray(data) ? data[0] : data
+      return { changed: Number(row?.changed_count ?? 0) }
+    },
+    [companyId, search, status]
+  )
 
-  const doReturnSelectedToPool = useCallback(async () => {
-    if (assignSource !== 'selected' || selectedIds.size === 0) return
-
-    const ok = confirm('Devolver os leads selecionados para o POOL?')
-    if (!ok) return
-
-    setAssigning(true)
+  // ---------- Actions ----------
+  const doReturnToPool = useCallback(async () => {
     setAssignResult(null)
     setAssignProgress(null)
 
-    try {
-      const leadIds = Array.from(selectedIds)
-      const res = await rpcAssign({
-        source: 'selected',
-        limit: qtyParsed === null ? null : qtyParsed,
-        leadIds,
-        mode: 'manual',
-        toOwner: null,
-        onlyIfPoolOverride: false,
-      })
+    if (assignSource === 'selected') {
+      if (selectedIds.size === 0) {
+        alert('Selecione pelo menos 1 lead OU use a origem "Vendedor" para devolver por quantidade.')
+        return
+      }
 
-      setAssignResult(`Devolvidos ao POOL: ${res.assigned} | Ignorados: ${res.skipped}`)
-      clearSelection()
-      await reloadPage()
-    } catch (e: any) {
-      alert('Erro ao devolver ao POOL: ' + (e?.message ?? String(e)))
-    } finally {
-      setAssigning(false)
-      setAssignProgress(null)
-    }
-  }, [assignSource, clearSelection, qtyParsed, reloadPage, rpcAssign, selectedIds])
+      const ok = confirm('Devolver os leads selecionados para o POOL?')
+      if (!ok) return
 
-  const doAssign = useCallback(async () => {
-    if (!validateCommon()) return
-
-    setAssigning(true)
-    try {
-      // SELECTED
-      if (assignSource === 'selected') {
-        if (assignMode === 'manual') {
-          await doAssignSelectedManualToSeller()
-          return
-        }
-
-        // selected + round_robin (uma chamada)
+      setAssigning(true)
+      try {
         const leadIds = Array.from(selectedIds)
-        const res = await rpcAssign({
+        const res = await rpcAssignLeads({
           source: 'selected',
           limit: qtyParsed === null ? null : qtyParsed,
           leadIds,
-          mode: 'round_robin',
+          mode: 'manual',
           toOwner: null,
+          onlyIfPoolOverride: false,
+        })
+        setAssignResult(`Devolvidos ao POOL: ${res.assigned} | Ignorados: ${res.skipped}`)
+        clearSelection()
+        await reloadPage()
+      } catch (e: any) {
+        alert('Erro ao devolver ao POOL: ' + (e?.message ?? String(e)))
+      } finally {
+        setAssigning(false)
+      }
+      return
+    }
+
+    if (assignSource === 'owner') {
+      if (ownerId === 'ALL' || ownerId === 'POOL') {
+        alert('No filtro "Dono", selecione um vendedor para usar Origem=Vendedor.')
+        return
+      }
+
+      const cfg = requireQtyAndBatchForAuto()
+      if (!cfg) return
+
+      const ok = confirm(`Devolver ${cfg.total} leads do vendedor "${ownerLabelFromFilter}" para o POOL?`)
+      if (!ok) return
+
+      setAssigning(true)
+      try {
+        let done = 0
+        let returnedTotal = 0
+        setAssignProgress({ done: 0, total: cfg.total })
+
+        while (done < cfg.total) {
+          const current = Math.min(cfg.batch, cfg.total - done)
+          const r = await rpcReassignOwnerLeads({ fromOwnerId: ownerId, toOwnerId: null, limit: current })
+          returnedTotal += r.changed
+          done += current
+          setAssignProgress({ done, total: cfg.total })
+          if (r.changed === 0) break
+        }
+
+        setAssignResult(`Devolvidos ao POOL: ${returnedTotal}`)
+        await reloadPage()
+      } catch (e: any) {
+        alert('Erro ao devolver por quantidade: ' + (e?.message ?? String(e)))
+      } finally {
+        setAssigning(false)
+        setAssignProgress(null)
+      }
+      return
+    }
+
+    alert('Para devolver por quantidade, use Origem = Vendedor.')
+  }, [
+    assignSource,
+    clearSelection,
+    ownerId,
+    ownerLabelFromFilter,
+    qtyParsed,
+    reloadPage,
+    requireQtyAndBatchForAuto,
+    rpcAssignLeads,
+    rpcReassignOwnerLeads,
+    selectedIds,
+  ])
+
+  const doAssign = useCallback(async () => {
+    setAssignResult(null)
+    setAssignProgress(null)
+
+    // --- selected
+    if (assignSource === 'selected') {
+      if (selectedIds.size === 0) {
+        alert('Selecione pelo menos 1 lead (ou mude a origem para "POOL" ou "Vendedor").')
+        return
+      }
+
+      if (assignMode === 'manual' && !toOwnerId) {
+        alert('Selecione o vendedor de destino.')
+        return
+      }
+      if (assignMode === 'round_robin' && effectiveSellerIds.length === 0) {
+        alert('Selecione pelo menos 1 vendedor (ou marque "Usar todos").')
+        return
+      }
+
+      setAssigning(true)
+      try {
+        const leadIds = Array.from(selectedIds)
+        const res = await rpcAssignLeads({
+          source: 'selected',
+          limit: qtyParsed === null ? null : qtyParsed,
+          leadIds,
+          mode: assignMode,
+          toOwner: assignMode === 'manual' ? toOwnerId : null,
         })
 
         setAssignResult(`Atribuídos: ${res.assigned} | Ignorados: ${res.skipped}` + (onlyPool ? ' (não estavam no POOL)' : ''))
         clearSelection()
         await reloadPage()
+      } catch (e: any) {
+        alert('Erro ao atribuir: ' + (e?.message ?? String(e)))
+      } finally {
+        setAssigning(false)
+      }
+      return
+    }
+
+    // --- pool
+    if (assignSource === 'pool') {
+      const cfg = requireQtyAndBatchForAuto()
+      if (!cfg) return
+
+      if (assignMode === 'manual' && !toOwnerId) {
+        alert('Selecione o vendedor de destino.')
+        return
+      }
+      if (assignMode === 'round_robin' && effectiveSellerIds.length === 0) {
+        alert('Selecione pelo menos 1 vendedor (ou marque "Usar todos").')
         return
       }
 
-      // POOL (lotes)
-      const totalToSend = qtyParsed as number
-      const batch = Math.min(batchParsed as number, totalToSend)
+      setAssigning(true)
+      try {
+        let done = 0
+        let assignedTotal = 0
+        setAssignProgress({ done: 0, total: cfg.total })
 
-      let done = 0
-      let assignedTotal = 0
+        while (done < cfg.total) {
+          const current = Math.min(cfg.batch, cfg.total - done)
+          const res = await rpcAssignLeads({
+            source: 'pool',
+            limit: current,
+            leadIds: [],
+            mode: assignMode,
+            toOwner: assignMode === 'manual' ? toOwnerId : null,
+          })
 
-      setAssignProgress({ done: 0, total: totalToSend })
+          assignedTotal += res.assigned
+          done += current
+          setAssignProgress({ done, total: cfg.total })
+          if (res.assigned === 0) break
+        }
 
-      while (done < totalToSend) {
-        const remaining = totalToSend - done
-        const currentLimit = Math.min(batch, remaining)
+        setAssignResult(
+          `Atribuídos: ${assignedTotal} | Não encontrados no POOL para completar: ${Math.max(cfg.total - assignedTotal, 0)}`
+        )
+        await reloadPage()
+      } catch (e: any) {
+        alert('Erro ao distribuir do POOL: ' + (e?.message ?? String(e)))
+      } finally {
+        setAssigning(false)
+        setAssignProgress(null)
+      }
+      return
+    }
 
-        const res = await rpcAssign({
-          source: 'pool',
-          limit: currentLimit,
-          leadIds: [],
-          mode: assignMode,
-          // manual no pool exige vendedor; round_robin usa sellerIds
-          toOwner: assignMode === 'manual' ? (toOwnerId ? toOwnerId : null) : null,
-        })
+    // --- owner (manual ou round_robin)
+    if (assignSource === 'owner') {
+      if (ownerId === 'ALL' || ownerId === 'POOL') {
+        alert('No filtro "Dono", selecione um vendedor para usar Origem=Vendedor.')
+        return
+      }
+      const cfg = requireQtyAndBatchForAuto()
+      if (!cfg) return
 
-        assignedTotal += res.assigned
-        done += currentLimit
-        setAssignProgress({ done, total: totalToSend })
+      if (assignMode === 'manual') {
+        if (!toOwnerId) {
+          alert('Selecione o vendedor de destino.')
+          return
+        }
+        if (toOwnerId === ownerId) {
+          alert('O vendedor de destino é o mesmo do filtro. Escolha outro.')
+          return
+        }
 
-        // pool acabou
-        if (res.assigned === 0) break
+        const ok = confirm(
+          `Transferir ${cfg.total} leads do vendedor "${ownerLabelFromFilter}" para "${ownerLabelById.get(toOwnerId) ?? toOwnerId}"?`
+        )
+        if (!ok) return
+
+        setAssigning(true)
+        try {
+          let done = 0
+          let changedTotal = 0
+          setAssignProgress({ done: 0, total: cfg.total })
+
+          while (done < cfg.total) {
+            const current = Math.min(cfg.batch, cfg.total - done)
+            const r = await rpcReassignOwnerLeads({ fromOwnerId: ownerId, toOwnerId, limit: current })
+            changedTotal += r.changed
+            done += current
+            setAssignProgress({ done, total: cfg.total })
+            if (r.changed === 0) break
+          }
+
+          setAssignResult(`Transferidos: ${changedTotal}`)
+          await reloadPage()
+        } catch (e: any) {
+          alert('Erro ao transferir por quantidade: ' + (e?.message ?? String(e)))
+        } finally {
+          setAssigning(false)
+          setAssignProgress(null)
+        }
+        return
       }
 
-      setAssignResult(
-        `Atribuídos: ${assignedTotal} | Não encontrados no POOL para completar: ${Math.max(totalToSend - assignedTotal, 0)}`
-      )
+      // ✅ round_robin from owner (sem mandar para o próprio vendedor de origem)
+      if (effectiveSellerIdsNoSource.length === 0) {
+        alert('Selecione pelo menos 1 vendedor (diferente do vendedor de origem).')
+        return
+      }
 
-      await reloadPage()
-    } catch (e: any) {
-      alert('Erro ao atribuir: ' + (e?.message ?? String(e)))
-    } finally {
-      setAssigning(false)
-      setAssignProgress(null)
+      const ok = confirm(`Distribuir ${cfg.total} leads do vendedor "${ownerLabelFromFilter}" via round-robin?`)
+      if (!ok) return
+
+      setAssigning(true)
+      try {
+        let done = 0
+        let changedTotal = 0
+        setAssignProgress({ done: 0, total: cfg.total })
+
+        while (done < cfg.total) {
+          const current = Math.min(cfg.batch, cfg.total - done)
+          const r = await rpcRoundRobinFromOwner({
+            fromOwnerId: ownerId,
+            limit: current,
+            sellerIds: effectiveSellerIdsNoSource, // ✅ aqui
+          })
+          changedTotal += r.changed
+          done += current
+          setAssignProgress({ done, total: cfg.total })
+          if (r.changed === 0) break
+        }
+
+        setAssignResult(`Redistribuídos: ${changedTotal}`)
+        await reloadPage()
+      } catch (e: any) {
+        alert('Erro no round-robin do vendedor: ' + (e?.message ?? String(e)))
+      } finally {
+        setAssigning(false)
+        setAssignProgress(null)
+      }
+      return
     }
   }, [
     assignMode,
     assignSource,
-    batchParsed,
     clearSelection,
-    doAssignSelectedManualToSeller,
+    effectiveSellerIds,
+    effectiveSellerIdsNoSource,
     onlyPool,
+    ownerId,
+    ownerLabelById,
+    ownerLabelFromFilter,
     qtyParsed,
     reloadPage,
-    rpcAssign,
+    requireQtyAndBatchForAuto,
+    rpcAssignLeads,
+    rpcReassignOwnerLeads,
+    rpcRoundRobinFromOwner,
     selectedIds,
     toOwnerId,
-    validateCommon,
   ])
 
+  // styles
   const pillBtnStyle: React.CSSProperties = {
     border: '1px solid #2a2a2a',
     background: 'transparent',
@@ -418,7 +570,7 @@ export default function AdminLeadsTable({
     padding: '10px 12px',
     borderRadius: 10,
     outline: 'none',
-    minWidth: 200,
+    minWidth: 210,
   }
 
   const inputStyle: React.CSSProperties = {
@@ -428,10 +580,10 @@ export default function AdminLeadsTable({
     padding: '10px 12px',
     borderRadius: 10,
     outline: 'none',
-    width: 150,
+    width: 170,
   }
 
-  const showBar = assignSource === 'pool' || selectedCount > 0
+  const showBar = true
 
   return (
     <div style={{ border: '1px solid #333', borderRadius: 12, padding: 14, background: '#0f0f0f' }}>
@@ -466,7 +618,7 @@ export default function AdminLeadsTable({
             padding: '10px 12px',
             borderRadius: 10,
             outline: 'none',
-            minWidth: 180,
+            minWidth: 220,
             opacity: assignSource === 'pool' ? 0.7 : 1,
           }}
         >
@@ -504,7 +656,7 @@ export default function AdminLeadsTable({
         <div style={{ opacity: 0.75, fontSize: 12, alignSelf: 'center' }}>{loading ? 'Carregando…' : `Total: ${total}`}</div>
       </div>
 
-      {/* Barra de atribuição */}
+      {/* Barra */}
       {showBar ? (
         <div
           style={{
@@ -522,53 +674,36 @@ export default function AdminLeadsTable({
         >
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ fontSize: 12, opacity: 0.85 }}>
-              {assignSource === 'selected' ? (
-                <>
-                  Selecionados: <b>{selectedCount}</b>
-                </>
-              ) : (
-                <>
-                  Origem: <b>POOL</b>
-                </>
-              )}
+              Selecionados: <b>{selectedCount}</b>
             </div>
 
-            {assignSource === 'selected' ? (
-              <button type="button" onClick={clearSelection} style={pillBtnStyle} disabled={assigning}>
-                Limpar seleção
-              </button>
-            ) : null}
+            <button type="button" onClick={clearSelection} style={pillBtnStyle} disabled={assigning}>
+              Limpar seleção
+            </button>
 
-            <select
-              value={assignSource}
-              onChange={(e) => setAssignSource(e.target.value as AssignSource)}
-              disabled={assigning}
-              style={{ ...selectStyle, minWidth: 190 }}
-              title="Origem dos leads"
-            >
-              <option value="selected">Selecionados</option>
+            <select value={assignSource} onChange={(e) => setAssignSource(e.target.value as AssignSource)} disabled={assigning} style={{ ...selectStyle, minWidth: 260 }}>
+              <option value="selected">Selecionados (checkbox)</option>
               <option value="pool">POOL (pegar automaticamente)</option>
+              <option value="owner">Vendedor (pegar automaticamente pelo filtro Dono)</option>
             </select>
 
             <input
               value={qty}
               onChange={(e) => setQty(e.target.value)}
               inputMode="numeric"
-              placeholder={assignSource === 'pool' ? 'Quantidade (obrig.)' : 'Quantidade (opcional)'}
+              placeholder={assignSource === 'selected' ? 'Qtd (opcional)' : 'Qtd (obrigatória)'}
               style={inputStyle}
               disabled={assigning}
-              title="Quantidade de leads para enviar"
             />
 
-            {assignSource === 'pool' ? (
+            {assignSource !== 'selected' ? (
               <input
                 value={batchSize}
                 onChange={(e) => setBatchSize(e.target.value)}
                 inputMode="numeric"
                 placeholder="Lote (ex.: 1000)"
-                style={{ ...inputStyle, width: 140 }}
+                style={{ ...inputStyle, width: 150 }}
                 disabled={assigning}
-                title="Tamanho do lote (recomendado 500 a 2000)"
               />
             ) : null}
 
@@ -577,18 +712,12 @@ export default function AdminLeadsTable({
                 type="checkbox"
                 checked={assignSource === 'pool' ? true : onlyPool}
                 onChange={(e) => setOnlyPool(e.target.checked)}
-                disabled={assigning || assignSource === 'pool'}
+                disabled={assigning || assignSource === 'pool' || assignSource === 'owner'}
               />
               Somente POOL (evita reatribuição)
             </label>
 
-            <select
-              value={assignMode}
-              onChange={(e) => setAssignMode(e.target.value as AssignMode)}
-              disabled={assigning}
-              style={{ ...selectStyle, minWidth: 200 }}
-              title="Modo de atribuição"
-            >
+            <select value={assignMode} onChange={(e) => setAssignMode(e.target.value as AssignMode)} disabled={assigning} style={selectStyle}>
               <option value="manual">Manual (1 vendedor)</option>
               <option value="round_robin">Automático (round-robin)</option>
             </select>
@@ -605,12 +734,7 @@ export default function AdminLeadsTable({
             ) : (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, opacity: 0.9 }}>
-                  <input
-                    type="checkbox"
-                    checked={useAllSellers}
-                    onChange={(e) => setUseAllSellers(e.target.checked)}
-                    disabled={assigning}
-                  />
+                  <input type="checkbox" checked={useAllSellers} onChange={(e) => setUseAllSellers(e.target.checked)} disabled={assigning} />
                   Usar todos vendedores
                 </label>
 
@@ -621,7 +745,6 @@ export default function AdminLeadsTable({
                     onChange={(e) => setSellerIds(Array.from(e.target.selectedOptions).map((o) => o.value))}
                     disabled={assigning}
                     style={{ ...selectStyle, minWidth: 320, height: 120, padding: '8px 10px' }}
-                    title="Selecione os vendedores (Cmd para múltiplos no Mac)"
                   >
                     {ownerOptions.map((o) => (
                       <option key={o.id} value={o.id}>
@@ -633,12 +756,15 @@ export default function AdminLeadsTable({
               </div>
             )}
 
-            {/* ✅ NOVO: Devolver ao POOL */}
-            {assignSource === 'selected' && selectedCount > 0 ? (
-              <button type="button" onClick={doReturnSelectedToPool} disabled={assigning} style={dangerBtnStyle}>
-                Devolver ao POOL
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={doReturnToPool}
+              disabled={assigning}
+              style={dangerBtnStyle}
+              title={assignSource === 'owner' ? `Origem: ${ownerLabelFromFilter}` : ''}
+            >
+              Devolver ao POOL
+            </button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -658,7 +784,7 @@ export default function AdminLeadsTable({
                 minWidth: 160,
               }}
             >
-              {assigning ? 'Enviando…' : assignMode === 'manual' ? 'Atribuir' : 'Distribuir'}
+              {assigning ? 'Processando…' : assignMode === 'manual' ? 'Atribuir' : 'Distribuir'}
             </button>
 
             {assignProgress ? (
@@ -679,13 +805,7 @@ export default function AdminLeadsTable({
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid #222' }}>
               <th style={{ padding: '10px 8px', width: 36 }}>
-                <input
-                  type="checkbox"
-                  checked={allPageSelected}
-                  onChange={toggleSelectPage}
-                  disabled={loading || rows.length === 0}
-                  title="Selecionar/desmarcar todos desta página"
-                />
+                <input type="checkbox" checked={allPageSelected} onChange={toggleSelectPage} disabled={loading || rows.length === 0} />
               </th>
               <th style={{ padding: '10px 8px' }}>Nome</th>
               <th style={{ padding: '10px 8px' }}>Telefone</th>
@@ -756,7 +876,6 @@ export default function AdminLeadsTable({
               opacity: loading ? 0.7 : 1,
               cursor: loading ? 'not-allowed' : 'pointer',
             }}
-            title="Itens por página"
           >
             <option value={20}>20 / página</option>
             <option value={30}>30 / página</option>
