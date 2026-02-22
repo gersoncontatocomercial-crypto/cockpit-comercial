@@ -16,6 +16,7 @@ export type LeadRow = {
 
 type AssignMode = 'manual' | 'round_robin'
 type AssignSource = 'selected' | 'pool' | 'owner'
+type OrderMode = 'oldest' | 'newest' | 'random'
 
 export default function AdminLeadsTable({
   title,
@@ -60,6 +61,9 @@ export default function AdminLeadsTable({
 
   const [useAllSellers, setUseAllSellers] = useState<boolean>(true)
   const [sellerIds, setSellerIds] = useState<string[]>([])
+
+  // ✅ NOVO: ordenação para ações por quantidade
+  const [orderMode, setOrderMode] = useState<OrderMode>('oldest')
 
   const [assigning, setAssigning] = useState<boolean>(false)
   const [assignProgress, setAssignProgress] = useState<{ done: number; total: number } | null>(null)
@@ -159,7 +163,7 @@ export default function AdminLeadsTable({
     return sellerIds
   }, [useAllSellers, sellerIds, ownerOptions])
 
-  // ✅ NOVO: remove automaticamente o vendedor de origem quando Origem=owner
+  // remove automaticamente o vendedor de origem quando Origem=owner
   const effectiveSellerIdsNoSource = useMemo(() => {
     if (assignSource !== 'owner') return effectiveSellerIds
     if (ownerId === 'ALL' || ownerId === 'POOL') return effectiveSellerIds
@@ -203,12 +207,18 @@ export default function AdminLeadsTable({
         p_source: args.source,
         p_limit: args.limit,
         p_lead_ids: args.leadIds,
+
         p_status: status === 'all' ? null : status,
         p_search: search.trim() ? search.trim() : null,
+
         p_mode: args.mode,
         p_to_owner_id: args.mode === 'manual' ? args.toOwner : null,
         p_seller_ids: args.mode === 'round_robin' ? effectiveSellerIds : [],
+
         p_only_if_pool: args.source === 'pool' ? true : args.onlyIfPoolOverride ?? onlyPool,
+
+        // ✅ novo
+        p_order_mode: orderMode,
       })
 
       if (error) throw error
@@ -218,7 +228,7 @@ export default function AdminLeadsTable({
         skipped: Number(row?.skipped_count ?? 0),
       }
     },
-    [companyId, effectiveSellerIds, onlyPool, search, status]
+    [companyId, effectiveSellerIds, onlyPool, orderMode, search, status]
   )
 
   const rpcReassignOwnerLeads = useCallback(
@@ -228,14 +238,18 @@ export default function AdminLeadsTable({
         p_from_owner_id: args.fromOwnerId,
         p_to_owner_id: args.toOwnerId,
         p_limit: args.limit,
+
         p_status: status === 'all' ? null : status,
         p_search: search.trim() ? search.trim() : null,
+
+        // ✅ novo
+        p_order_mode: orderMode,
       })
       if (error) throw error
       const row = Array.isArray(data) ? data[0] : data
       return { changed: Number(row?.changed_count ?? 0) }
     },
-    [companyId, search, status]
+    [companyId, orderMode, search, status]
   )
 
   const rpcRoundRobinFromOwner = useCallback(
@@ -245,14 +259,18 @@ export default function AdminLeadsTable({
         p_from_owner_id: args.fromOwnerId,
         p_seller_ids: args.sellerIds,
         p_limit: args.limit,
+
         p_status: status === 'all' ? null : status,
         p_search: search.trim() ? search.trim() : null,
+
+        // ✅ novo
+        p_order_mode: orderMode,
       })
       if (error) throw error
       const row = Array.isArray(data) ? data[0] : data
       return { changed: Number(row?.changed_count ?? 0) }
     },
-    [companyId, search, status]
+    [companyId, orderMode, search, status]
   )
 
   // ---------- Actions ----------
@@ -484,7 +502,7 @@ export default function AdminLeadsTable({
         return
       }
 
-      // ✅ round_robin from owner (sem mandar para o próprio vendedor de origem)
+      // round_robin from owner (sem mandar para o próprio vendedor de origem)
       if (effectiveSellerIdsNoSource.length === 0) {
         alert('Selecione pelo menos 1 vendedor (diferente do vendedor de origem).')
         return
@@ -504,7 +522,7 @@ export default function AdminLeadsTable({
           const r = await rpcRoundRobinFromOwner({
             fromOwnerId: ownerId,
             limit: current,
-            sellerIds: effectiveSellerIdsNoSource, // ✅ aqui
+            sellerIds: effectiveSellerIdsNoSource,
           })
           changedTotal += r.changed
           done += current
@@ -681,7 +699,12 @@ export default function AdminLeadsTable({
               Limpar seleção
             </button>
 
-            <select value={assignSource} onChange={(e) => setAssignSource(e.target.value as AssignSource)} disabled={assigning} style={{ ...selectStyle, minWidth: 260 }}>
+            <select
+              value={assignSource}
+              onChange={(e) => setAssignSource(e.target.value as AssignSource)}
+              disabled={assigning}
+              style={{ ...selectStyle, minWidth: 260 }}
+            >
               <option value="selected">Selecionados (checkbox)</option>
               <option value="pool">POOL (pegar automaticamente)</option>
               <option value="owner">Vendedor (pegar automaticamente pelo filtro Dono)</option>
@@ -706,6 +729,13 @@ export default function AdminLeadsTable({
                 disabled={assigning}
               />
             ) : null}
+
+            {/* ✅ NOVO: ordenação */}
+            <select value={orderMode} onChange={(e) => setOrderMode(e.target.value as OrderMode)} disabled={assigning} style={{ ...selectStyle, minWidth: 180 }}>
+              <option value="oldest">Mais antigos</option>
+              <option value="newest">Mais recentes</option>
+              <option value="random">Aleatório</option>
+            </select>
 
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, opacity: 0.9 }}>
               <input
@@ -734,7 +764,12 @@ export default function AdminLeadsTable({
             ) : (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, opacity: 0.9 }}>
-                  <input type="checkbox" checked={useAllSellers} onChange={(e) => setUseAllSellers(e.target.checked)} disabled={assigning} />
+                  <input
+                    type="checkbox"
+                    checked={useAllSellers}
+                    onChange={(e) => setUseAllSellers(e.target.checked)}
+                    disabled={assigning}
+                  />
                   Usar todos vendedores
                 </label>
 
