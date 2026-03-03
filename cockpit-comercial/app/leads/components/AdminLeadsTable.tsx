@@ -62,12 +62,14 @@ export default function AdminLeadsTable({
   const [useAllSellers, setUseAllSellers] = useState<boolean>(true)
   const [sellerIds, setSellerIds] = useState<string[]>([])
 
-  // ✅ NOVO: ordenação para ações por quantidade
   const [orderMode, setOrderMode] = useState<OrderMode>('oldest')
 
   const [assigning, setAssigning] = useState<boolean>(false)
   const [assignProgress, setAssignProgress] = useState<{ done: number; total: number } | null>(null)
   const [assignResult, setAssignResult] = useState<string | null>(null)
+
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize])
 
@@ -83,6 +85,82 @@ export default function AdminLeadsTable({
     return ownerLabelById.get(ownerId) ?? ownerId
   }, [ownerId, ownerLabelById])
 
+  const selectedSellerName = useMemo(() => {
+    if (ownerId === 'ALL' || ownerId === 'POOL') return ''
+    return ownerLabelById.get(ownerId) ?? ownerId
+  }, [ownerId, ownerLabelById])
+
+  const selectedCount = selectedIds.size
+
+  const sourceLabel = useMemo(() => {
+    if (assignSource === 'pool') return 'POOL'
+    if (assignSource === 'selected') return `Selecionados (${selectedCount})`
+    return selectedSellerName ? `Vendedor: ${selectedSellerName}` : 'Vendedor (não selecionado no filtro)'
+  }, [assignSource, selectedCount, selectedSellerName])
+
+  const destinationLabel = useMemo(() => {
+    if (assignMode === 'round_robin') {
+      if (useAllSellers) return 'Round-robin (todos vendedores)'
+      return `Round-robin (${sellerIds.length} vendedor(es))`
+    }
+    if (!toOwnerId) return 'POOL'
+    return ownerLabelById.get(toOwnerId) ?? toOwnerId
+  }, [assignMode, ownerLabelById, sellerIds.length, toOwnerId, useAllSellers])
+
+  const qtyLabel = useMemo(() => {
+    const t = qty.trim()
+    return t ? t : 'todas'
+  }, [qty])
+
+  const requiresQty = useMemo(() => {
+    return assignSource === 'owner'
+  }, [assignSource])
+
+  const qtyParsed = useMemo(() => parsePositiveInt(qty), [qty])
+  const batchParsed = useMemo(() => parsePositiveInt(batchSize), [batchSize])
+
+  function requireQtyAndBatchForAuto() {
+    if (qtyParsed === null || Number.isNaN(qtyParsed)) {
+      alert('Informe uma quantidade válida.')
+      return null
+    }
+    if (batchParsed === null || Number.isNaN(batchParsed)) {
+      alert('Informe um lote válido (ex.: 1000).')
+      return null
+    }
+    return { total: qtyParsed, batch: batchParsed }
+  }
+
+  const qtyOk = useMemo(() => {
+    if (!requiresQty) return true
+    return qtyParsed !== null && !Number.isNaN(qtyParsed)
+  }, [qtyParsed, requiresQty])
+
+  const actionValidationMsg = useMemo(() => {
+    if (assignSource === 'owner' && (ownerId === 'ALL' || ownerId === 'POOL')) {
+      return 'No filtro "Dono", selecione um vendedor para usar Origem = Vendedor.'
+    }
+    if (assignSource === 'selected' && selectedCount === 0) {
+      return 'Selecione pelo menos 1 lead na tabela.'
+    }
+    if (assignMode === 'manual' && !toOwnerId && assignSource !== 'owner') {
+      return 'Selecione o vendedor de destino.'
+    }
+    if (assignMode === 'round_robin' && !useAllSellers && sellerIds.length === 0) {
+      return 'Selecione pelo menos 1 vendedor (ou marque "Usar todos").'
+    }
+    if (!qtyOk) {
+      return 'Informe a Quantidade (obrigatória) para administrar leads do vendedor.'
+    }
+    return null
+  }, [assignMode, assignSource, ownerId, qtyOk, selectedCount, sellerIds.length, toOwnerId, useAllSellers])
+
+  const canRunAssign = useMemo(() => {
+    return !assigning && !actionValidationMsg
+  }, [assigning, actionValidationMsg])
+
+  const returnIsPrimary = assignSource === 'owner' && assignMode === 'manual' && !toOwnerId
+
   useEffect(() => {
     setPage(1)
     setSelectedIds(new Set())
@@ -92,7 +170,6 @@ export default function AdminLeadsTable({
 
   useEffect(() => {
     if (assignSource === 'pool') {
-      setOwnerId('POOL')
       setOnlyPool(true)
     }
   }, [assignSource])
@@ -122,8 +199,6 @@ export default function AdminLeadsTable({
       await reloadPage()
     })()
   }, [reloadPage])
-
-  const selectedCount = selectedIds.size
 
   const isRowSelected = useCallback((id: string) => selectedIds.has(id), [selectedIds])
 
@@ -163,34 +238,92 @@ export default function AdminLeadsTable({
     return sellerIds
   }, [useAllSellers, sellerIds, ownerOptions])
 
-  // remove automaticamente o vendedor de origem quando Origem=owner
   const effectiveSellerIdsNoSource = useMemo(() => {
     if (assignSource !== 'owner') return effectiveSellerIds
     if (ownerId === 'ALL' || ownerId === 'POOL') return effectiveSellerIds
     return effectiveSellerIds.filter((id) => id !== ownerId)
   }, [assignSource, effectiveSellerIds, ownerId])
 
-  const parsePositiveInt = useCallback((s: string) => {
+  function parsePositiveInt(s: string) {
     if (!s.trim()) return null
     const n = Number(s)
     if (!Number.isFinite(n) || n <= 0) return NaN
     return Math.floor(n)
+  }
+
+  // ---- confirmações extras ----
+  const CONFIRM_HARD_LIMIT = 1000
+
+  const requireHardConfirm = useCallback((actionLabel: string, n: number) => {
+    if (n < CONFIRM_HARD_LIMIT) return true
+    const text = prompt(
+      `${actionLabel}\n\nVocê está prestes a afetar ${n} leads (>= ${CONFIRM_HARD_LIMIT}).\nDigite DEVOLVER para confirmar:`
+    )
+    return (text ?? '').trim().toUpperCase() === 'DEVOLVER'
   }, [])
 
-  const qtyParsed = useMemo(() => parsePositiveInt(qty), [qty, parsePositiveInt])
-  const batchParsed = useMemo(() => parsePositiveInt(batchSize), [batchSize, parsePositiveInt])
+  // ---- Presets (Ações rápidas) ----
+  const applyPreset = useCallback(
+    (preset: 'pool_rr' | 'pool_manual' | 'owner_transfer' | 'owner_return' | 'selected_manual') => {
+      setAssignResult(null)
+      setAssignProgress(null)
 
-  const requireQtyAndBatchForAuto = useCallback(() => {
-    if (qtyParsed === null || Number.isNaN(qtyParsed)) {
-      alert('Informe uma quantidade válida.')
-      return null
-    }
-    if (batchParsed === null || Number.isNaN(batchParsed)) {
-      alert('Informe um lote válido (ex.: 1000).')
-      return null
-    }
-    return { total: qtyParsed, batch: batchParsed }
-  }, [batchParsed, qtyParsed])
+      if (preset === 'pool_rr') {
+        setAssignSource('pool')
+        setAssignMode('round_robin')
+        setUseAllSellers(true)
+        setSellerIds([])
+        setOrderMode('oldest')
+        setQty((q) => (q.trim() ? q : '1000'))
+        setBatchSize((b) => (b.trim() ? b : '1000'))
+        setOnlyPool(true)
+        setToOwnerId('')
+        return
+      }
+
+      if (preset === 'pool_manual') {
+        setAssignSource('pool')
+        setAssignMode('manual')
+        setOrderMode('oldest')
+        setQty((q) => (q.trim() ? q : '1000'))
+        setBatchSize((b) => (b.trim() ? b : '1000'))
+        setOnlyPool(true)
+        return
+      }
+
+      if (preset === 'owner_transfer') {
+        setAssignSource('owner')
+        setAssignMode('manual')
+        setOrderMode('oldest')
+        setQty((q) => (q.trim() ? q : '1000'))
+        setBatchSize((b) => (b.trim() ? b : '1000'))
+        setOnlyPool(true)
+        return
+      }
+
+      if (preset === 'owner_return') {
+        setAssignSource('owner')
+        setAssignMode('manual')
+        setOrderMode('oldest')
+        setQty((q) => (q.trim() ? q : '1000'))
+        setBatchSize((b) => (b.trim() ? b : '1000'))
+        setOnlyPool(true)
+        setToOwnerId('')
+        return
+      }
+
+      if (preset === 'selected_manual') {
+        setAssignSource('selected')
+        setAssignMode('manual')
+        setOrderMode('oldest')
+        setQty('')
+        setBatchSize('1000')
+        setOnlyPool(true)
+        return
+      }
+    },
+    []
+  )
 
   // ---------- RPC helpers ----------
   const rpcAssignLeads = useCallback(
@@ -217,7 +350,6 @@ export default function AdminLeadsTable({
 
         p_only_if_pool: args.source === 'pool' ? true : args.onlyIfPoolOverride ?? onlyPool,
 
-        // ✅ novo
         p_order_mode: orderMode,
       })
 
@@ -242,7 +374,6 @@ export default function AdminLeadsTable({
         p_status: status === 'all' ? null : status,
         p_search: search.trim() ? search.trim() : null,
 
-        // ✅ novo
         p_order_mode: orderMode,
       })
       if (error) throw error
@@ -263,7 +394,6 @@ export default function AdminLeadsTable({
         p_status: status === 'all' ? null : status,
         p_search: search.trim() ? search.trim() : null,
 
-        // ✅ novo
         p_order_mode: orderMode,
       })
       if (error) throw error
@@ -286,6 +416,11 @@ export default function AdminLeadsTable({
 
       const ok = confirm('Devolver os leads selecionados para o POOL?')
       if (!ok) return
+
+      if (!requireHardConfirm('CONFIRMAÇÃO EXTRA: devolver leads selecionados ao POOL.', selectedIds.size)) {
+        alert('Operação cancelada.')
+        return
+      }
 
       setAssigning(true)
       try {
@@ -321,6 +456,11 @@ export default function AdminLeadsTable({
       const ok = confirm(`Devolver ${cfg.total} leads do vendedor "${ownerLabelFromFilter}" para o POOL?`)
       if (!ok) return
 
+      if (!requireHardConfirm(`CONFIRMAÇÃO EXTRA: devolver por quantidade para o POOL.\nVendedor: ${ownerLabelFromFilter}`, cfg.total)) {
+        alert('Operação cancelada.')
+        return
+      }
+
       setAssigning(true)
       try {
         let done = 0
@@ -355,7 +495,7 @@ export default function AdminLeadsTable({
     ownerLabelFromFilter,
     qtyParsed,
     reloadPage,
-    requireQtyAndBatchForAuto,
+    requireHardConfirm,
     rpcAssignLeads,
     rpcReassignOwnerLeads,
     selectedIds,
@@ -365,7 +505,6 @@ export default function AdminLeadsTable({
     setAssignResult(null)
     setAssignProgress(null)
 
-    // --- selected
     if (assignSource === 'selected') {
       if (selectedIds.size === 0) {
         alert('Selecione pelo menos 1 lead (ou mude a origem para "POOL" ou "Vendedor").')
@@ -403,7 +542,6 @@ export default function AdminLeadsTable({
       return
     }
 
-    // --- pool
     if (assignSource === 'pool') {
       const cfg = requireQtyAndBatchForAuto()
       if (!cfg) return
@@ -452,7 +590,6 @@ export default function AdminLeadsTable({
       return
     }
 
-    // --- owner (manual ou round_robin)
     if (assignSource === 'owner') {
       if (ownerId === 'ALL' || ownerId === 'POOL') {
         alert('No filtro "Dono", selecione um vendedor para usar Origem=Vendedor.')
@@ -480,7 +617,7 @@ export default function AdminLeadsTable({
         try {
           let done = 0
           let changedTotal = 0
-          setAssignProgress({ done: 0, total: cfg.total })
+          setAssignProgress({ done, total: cfg.total })
 
           while (done < cfg.total) {
             const current = Math.min(cfg.batch, cfg.total - done)
@@ -502,7 +639,6 @@ export default function AdminLeadsTable({
         return
       }
 
-      // round_robin from owner (sem mandar para o próprio vendedor de origem)
       if (effectiveSellerIdsNoSource.length === 0) {
         alert('Selecione pelo menos 1 vendedor (diferente do vendedor de origem).')
         return
@@ -515,7 +651,7 @@ export default function AdminLeadsTable({
       try {
         let done = 0
         let changedTotal = 0
-        setAssignProgress({ done: 0, total: cfg.total })
+        setAssignProgress({ done, total: cfg.total })
 
         while (done < cfg.total) {
           const current = Math.min(cfg.batch, cfg.total - done)
@@ -552,7 +688,6 @@ export default function AdminLeadsTable({
     ownerLabelFromFilter,
     qtyParsed,
     reloadPage,
-    requireQtyAndBatchForAuto,
     rpcAssignLeads,
     rpcReassignOwnerLeads,
     rpcRoundRobinFromOwner,
@@ -560,279 +695,505 @@ export default function AdminLeadsTable({
     toOwnerId,
   ])
 
-  // styles
-  const pillBtnStyle: React.CSSProperties = {
-    border: '1px solid #2a2a2a',
-    background: 'transparent',
-    color: '#cbd5e1',
-    fontSize: 12,
-    padding: '6px 10px',
-    borderRadius: 999,
-    cursor: 'pointer',
+  // ---------------- styles ----------------
+  const container: React.CSSProperties = { border: '1px solid #333', borderRadius: 12, padding: 14, background: '#0f0f0f' }
+
+  const bar: React.CSSProperties = {
+    border: '1px solid #222',
+    background: '#0b0b0b',
+    borderRadius: 12,
+    padding: 12,
+    display: 'flex',
+    gap: 10,
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
   }
 
-  const dangerBtnStyle: React.CSSProperties = {
+  const labelSmall: React.CSSProperties = { fontSize: 12, opacity: 0.75 }
+
+  const inputBase: React.CSSProperties = {
+    background: '#111',
+    border: '1px solid #2a2a2a',
+    color: 'white',
+    padding: '10px 12px',
+    borderRadius: 10,
+    outline: 'none',
+  }
+  const inputSearch: React.CSSProperties = { ...inputBase, flex: 1, minWidth: 280 }
+  const selectBase: React.CSSProperties = { ...inputBase, minWidth: 210 }
+
+  const chipBtn: React.CSSProperties = {
+    border: '1px solid #2a2a2a',
+    background: '#111',
+    color: 'white',
+    fontSize: 12,
+    padding: '8px 10px',
+    borderRadius: 999,
+    cursor: 'pointer',
+    fontWeight: 900,
+  }
+
+  const secondaryBtn: React.CSSProperties = {
+    border: '1px solid #2a2a2a',
+    background: '#111',
+    color: 'white',
+    borderRadius: 10,
+    padding: '10px 12px',
+    cursor: 'pointer',
+    fontSize: 13,
+    fontWeight: 900,
+  }
+
+  const primaryBtn: React.CSSProperties = {
+    border: '1px solid #334155',
+    background: assigning ? '#0b1220' : '#111827',
+    color: 'white',
+    borderRadius: 10,
+    padding: '10px 14px',
+    cursor: assigning ? 'not-allowed' : 'pointer',
+    fontSize: 13,
+    opacity: assigning ? 0.75 : 1,
+    minWidth: 140,
+    fontWeight: 900,
+  }
+
+  const dangerBtn: React.CSSProperties = {
     border: '1px solid #7f1d1d',
     background: '#1a0b0b',
     color: '#fecaca',
-    fontSize: 12,
-    padding: '8px 10px',
+    fontSize: 13,
+    padding: '10px 14px',
     borderRadius: 10,
-    cursor: 'pointer',
+    cursor: assigning ? 'not-allowed' : 'pointer',
+    opacity: assigning ? 0.7 : 1,
+    fontWeight: 900,
   }
 
-  const selectStyle: React.CSSProperties = {
-    background: '#111',
-    border: '1px solid #2a2a2a',
-    color: 'white',
-    padding: '10px 12px',
-    borderRadius: 10,
-    outline: 'none',
-    minWidth: 210,
+  const modalOverlay: React.CSSProperties = {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,.55)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    zIndex: 1000,
   }
 
-  const inputStyle: React.CSSProperties = {
-    background: '#111',
+  const modal: React.CSSProperties = {
+    width: 'min(980px, 100%)',
+    maxHeight: 'min(80vh, 720px)',
+    overflow: 'auto',
+    borderRadius: 14,
     border: '1px solid #2a2a2a',
-    color: 'white',
-    padding: '10px 12px',
-    borderRadius: 10,
-    outline: 'none',
-    width: 170,
+    background: '#0b0b0b',
+    boxShadow: '0 30px 80px rgba(0,0,0,.6)',
   }
+
+  const modalHeader: React.CSSProperties = {
+    padding: 14,
+    borderBottom: '1px solid #1f1f1f',
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 10,
+    alignItems: 'center',
+    position: 'sticky',
+    top: 0,
+    background: '#0b0b0b',
+    zIndex: 1,
+  }
+
+  const modalTitle: React.CSSProperties = { fontWeight: 900 }
+
+  const modalBody: React.CSSProperties = { padding: 14, display: 'grid', gap: 12 }
+
+  // accessibility: fechar com ESC
+  useEffect(() => {
+    if (!actionsOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActionsOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [actionsOpen])
 
   const showBar = true
 
   return (
-    <div style={{ border: '1px solid #333', borderRadius: 12, padding: 14, background: '#0f0f0f' }}>
+    <div style={container}>
       {title ? <h3 style={{ marginTop: 0, marginBottom: 10 }}>{title}</h3> : null}
 
-      {/* Filtros */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por nome/telefone…"
-          style={{
-            flex: 1,
-            minWidth: 260,
-            background: '#111',
-            border: '1px solid #2a2a2a',
-            color: 'white',
-            padding: '10px 12px',
-            borderRadius: 10,
-            outline: 'none',
-          }}
-        />
+      {/* FILTROS */}
+      <div style={bar}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nome ou telefone…" style={inputSearch} />
 
-        <select
-          value={ownerId}
-          onChange={(e) => setOwnerId(e.target.value)}
-          disabled={assignSource === 'pool'}
-          style={{
-            background: '#111',
-            border: '1px solid #2a2a2a',
-            color: 'white',
-            padding: '10px 12px',
-            borderRadius: 10,
-            outline: 'none',
-            minWidth: 220,
-            opacity: assignSource === 'pool' ? 0.7 : 1,
-          }}
-        >
-          <option value="ALL">Todos</option>
-          <option value="POOL">Somente POOL</option>
-          {ownerOptions.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+          <select
+            value={ownerId}
+            onChange={(e) => setOwnerId(e.target.value)}
+            disabled={assignSource === 'pool'}
+            style={{ ...selectBase, opacity: assignSource === 'pool' ? 0.7 : 1 }}
+            title={assignSource === 'pool' ? 'Travado porque a origem está em POOL automático.' : ''}
+          >
+            <option value="ALL">Todos</option>
+            <option value="POOL">Somente POOL</option>
+            {ownerOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
 
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          style={{
-            background: '#111',
-            border: '1px solid #2a2a2a',
-            color: 'white',
-            padding: '10px 12px',
-            borderRadius: 10,
-            outline: 'none',
-            minWidth: 170,
-          }}
-        >
-          <option value="all">Todos os status</option>
-          <option value="novo">novo</option>
-          <option value="contato">contato</option>
-          <option value="respondeu">respondeu</option>
-          <option value="negociacao">negociacao</option>
-          <option value="fechado">fechado</option>
-          <option value="perdido">perdido</option>
-        </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...selectBase, minWidth: 180 }}>
+            <option value="all">Todos os status</option>
+            <option value="novo">novo</option>
+            <option value="contato">contato</option>
+            <option value="respondeu">respondeu</option>
+            <option value="negociacao">negociacao</option>
+            <option value="fechado">fechado</option>
+            <option value="perdido">perdido</option>
+          </select>
 
-        <div style={{ opacity: 0.75, fontSize: 12, alignSelf: 'center' }}>{loading ? 'Carregando…' : `Total: ${total}`}</div>
-      </div>
-
-      {/* Barra */}
-      {showBar ? (
-        <div
-          style={{
-            border: '1px solid #222',
-            background: '#0b0b0b',
-            borderRadius: 12,
-            padding: 12,
-            marginBottom: 12,
-            display: 'flex',
-            gap: 10,
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12, opacity: 0.85 }}>
-              Selecionados: <b>{selectedCount}</b>
-            </div>
-
-            <button type="button" onClick={clearSelection} style={pillBtnStyle} disabled={assigning}>
-              Limpar seleção
-            </button>
-
-            <select
-              value={assignSource}
-              onChange={(e) => setAssignSource(e.target.value as AssignSource)}
-              disabled={assigning}
-              style={{ ...selectStyle, minWidth: 260 }}
-            >
-              <option value="selected">Selecionados (checkbox)</option>
-              <option value="pool">POOL (pegar automaticamente)</option>
-              <option value="owner">Vendedor (pegar automaticamente pelo filtro Dono)</option>
-            </select>
-
-            <input
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              inputMode="numeric"
-              placeholder={assignSource === 'selected' ? 'Qtd (opcional)' : 'Qtd (obrigatória)'}
-              style={inputStyle}
-              disabled={assigning}
-            />
-
-            {assignSource !== 'selected' ? (
-              <input
-                value={batchSize}
-                onChange={(e) => setBatchSize(e.target.value)}
-                inputMode="numeric"
-                placeholder="Lote (ex.: 1000)"
-                style={{ ...inputStyle, width: 150 }}
-                disabled={assigning}
-              />
-            ) : null}
-
-            {/* ✅ NOVO: ordenação */}
-            <select value={orderMode} onChange={(e) => setOrderMode(e.target.value as OrderMode)} disabled={assigning} style={{ ...selectStyle, minWidth: 180 }}>
-              <option value="oldest">Mais antigos</option>
-              <option value="newest">Mais recentes</option>
-              <option value="random">Aleatório</option>
-            </select>
-
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, opacity: 0.9 }}>
-              <input
-                type="checkbox"
-                checked={assignSource === 'pool' ? true : onlyPool}
-                onChange={(e) => setOnlyPool(e.target.checked)}
-                disabled={assigning || assignSource === 'pool' || assignSource === 'owner'}
-              />
-              Somente POOL (evita reatribuição)
-            </label>
-
-            <select value={assignMode} onChange={(e) => setAssignMode(e.target.value as AssignMode)} disabled={assigning} style={selectStyle}>
-              <option value="manual">Manual (1 vendedor)</option>
-              <option value="round_robin">Automático (round-robin)</option>
-            </select>
-
-            {assignMode === 'manual' ? (
-              <select value={toOwnerId} onChange={(e) => setToOwnerId(e.target.value)} disabled={assigning} style={selectStyle}>
-                <option value="">— selecione o vendedor —</option>
-                {ownerOptions.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, opacity: 0.9 }}>
-                  <input
-                    type="checkbox"
-                    checked={useAllSellers}
-                    onChange={(e) => setUseAllSellers(e.target.checked)}
-                    disabled={assigning}
-                  />
-                  Usar todos vendedores
-                </label>
-
-                {!useAllSellers ? (
-                  <select
-                    multiple
-                    value={sellerIds}
-                    onChange={(e) => setSellerIds(Array.from(e.target.selectedOptions).map((o) => o.value))}
-                    disabled={assigning}
-                    style={{ ...selectStyle, minWidth: 320, height: 120, padding: '8px 10px' }}
-                  >
-                    {ownerOptions.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={doReturnToPool}
-              disabled={assigning}
-              style={dangerBtnStyle}
-              title={assignSource === 'owner' ? `Origem: ${ownerLabelFromFilter}` : ''}
-            >
-              Devolver ao POOL
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={doAssign}
-              disabled={assigning}
-              style={{
-                border: '1px solid #334155',
-                background: assigning ? '#0b1220' : '#111827',
-                color: 'white',
-                borderRadius: 10,
-                padding: '10px 12px',
-                cursor: assigning ? 'not-allowed' : 'pointer',
-                fontSize: 13,
-                opacity: assigning ? 0.75 : 1,
-                minWidth: 160,
-              }}
-            >
-              {assigning ? 'Processando…' : assignMode === 'manual' ? 'Atribuir' : 'Distribuir'}
-            </button>
-
-            {assignProgress ? (
-              <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Progresso: <b>{assignProgress.done}</b> / <b>{assignProgress.total}</b>
-              </div>
-            ) : null}
+          <div style={{ ...labelSmall, marginLeft: 'auto' }}>
+            {loading ? 'Carregando…' : `Total: ${total}`} • Dono: <b>{ownerLabelFromFilter}</b>
           </div>
         </div>
-      ) : null}
+      </div>
+
+      {/* SELEÇÃO */}
+      <div style={bar}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+          <div style={{ fontSize: 12, opacity: 0.9 }}>
+            Selecionados: <b>{selectedCount}</b>
+          </div>
+
+          <button type="button" onClick={toggleSelectPage} style={chipBtn} disabled={assigning || loading || rows.length === 0}>
+            {allPageSelected ? 'Desmarcar página' : 'Selecionar página'}
+          </button>
+
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={labelSmall}>Dica: filtre → selecione → AÇÕES.</div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAssignResult(null)
+                setAssignProgress(null)
+
+                // Se já tem um vendedor selecionado no filtro Dono, respeita isso:
+                const hasSellerFiltered = ownerId !== 'ALL' && ownerId !== 'POOL'
+
+                if (hasSellerFiltered) {
+                  // Admin está vendo um vendedor: padrão é devolver ao POOL
+                  setAssignSource('owner')
+                  setAssignMode('manual')
+                  setToOwnerId('')
+                  setQty('')
+                  setBatchSize('1000')
+                  setOrderMode('oldest')
+                  setOnlyPool(true)
+                } else {
+                  // Caso padrão: pegar do POOL e enviar para vendedor
+                  setAssignSource('pool')
+                  setAssignMode('manual')
+                  setToOwnerId('')
+                  setQty('')
+                  setBatchSize('1000')
+                  setOrderMode('oldest')
+                  setOnlyPool(true)
+                }
+
+                setShowAdvanced(false)
+                setActionsOpen(true)
+              }}
+              style={primaryBtn}
+              disabled={assigning}
+            >
+              AÇÕES
+            </button>
+          </div>
+        </div>
+      </div>
 
       {assignResult ? <div style={{ marginBottom: 10, color: '#a7f3d0', fontSize: 13 }}>{assignResult}</div> : null}
       {errorMsg ? <div style={{ marginBottom: 10, color: '#ef4444', fontSize: 13 }}>Erro: {errorMsg}</div> : null}
+
+      {/* MODAL DE AÇÕES */}
+      {actionsOpen ? (
+        <div
+          style={modalOverlay}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setActionsOpen(false)
+          }}
+        >
+          <div style={modal} role="dialog" aria-modal="true" aria-label="Ações em lote">
+            <div style={modalHeader}>
+              <div>
+                <div style={modalTitle}>Ações em lote</div>
+
+                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
+                  Aplicar em: <b>{selectedCount}</b> selecionados • ESC para fechar
+                </div>
+
+                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                  Filtro Dono: <b>{ownerLabelFromFilter}</b>
+                </div>
+
+                {assignSource === 'owner' && selectedSellerName ? (
+                  <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+                    Vendedor selecionado: <b>{selectedSellerName}</b>
+                  </div>
+                ) : null}
+
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 8 }}>
+                  Ação: <b>{sourceLabel}</b> → <b>{destinationLabel}</b> • Quantidade: <b>{qtyLabel}</b>
+                  {assignSource === 'pool' ? ' • Somente POOL: ON' : onlyPool ? ' • Somente POOL: ON' : ' • Somente POOL: OFF'}
+                </div>
+
+                {actionValidationMsg ? (
+                  <div style={{ fontSize: 12, color: '#fca5a5', marginTop: 8 }}>{actionValidationMsg}</div>
+                ) : null}
+              </div>
+
+              <button type="button" onClick={() => setActionsOpen(false)} style={secondaryBtn}>
+                Fechar
+              </button>
+            </div>
+
+            <div style={modalBody}>
+              {/* Ações rápidas */}
+              <div style={{ border: '1px solid #1f1f1f', borderRadius: 12, padding: 12, background: '#0f0f0f' }}>
+                <div style={{ fontWeight: 900, marginBottom: 10 }}>Ações rápidas</div>
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" onClick={() => applyPreset('pool_manual')} disabled={assigning} style={chipBtn} title="Pegar do POOL e enviar para um vendedor">
+                    POOL → vendedor
+                  </button>
+
+                  <button type="button" onClick={() => applyPreset('pool_rr')} disabled={assigning} style={chipBtn} title="Distribuir do POOL para todos os vendedores (round-robin)">
+                    Distribuir POOL
+                  </button>
+
+                  <button type="button" onClick={() => applyPreset('selected_manual')} disabled={assigning} style={chipBtn} title="Enviar os leads selecionados para um vendedor">
+                    Selecionados → vendedor
+                  </button>
+
+                  <button type="button" onClick={() => applyPreset('owner_transfer')} disabled={assigning} style={chipBtn} title='Transferir leads do vendedor filtrado em "Dono" para outro vendedor'>
+                    Transferir vendedor
+                  </button>
+
+                  <button type="button" onClick={() => applyPreset('owner_return')} disabled={assigning} style={chipBtn} title='Devolver leads do vendedor filtrado em "Dono" para o POOL'>
+                    Devolver p/ POOL
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 12, opacity: 0.7, marginTop: 10 }}>
+                  Dica: clique numa ação rápida para preencher o formulário abaixo.
+                </div>
+              </div>
+
+              {/* Configurar ação (ESSENCIAL SEMPRE VISÍVEL) */}
+              {showBar ? (
+                <div style={{ border: '1px solid #1f1f1f', borderRadius: 12, padding: 12, background: '#0f0f0f' }}>
+                  <div style={{ fontWeight: 900, marginBottom: 10 }}>Configurar ação</div>
+
+                  {/* Essenciais */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: 10,
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                      alignItems: 'end',
+                    }}
+                  >
+                    <label style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>Origem</span>
+                      <select
+                        value={assignSource}
+                        onChange={(e) => setAssignSource(e.target.value as AssignSource)}
+                        disabled={assigning}
+                        style={{ ...selectBase, width: '100%', minWidth: 0 }}
+                      >
+                        <option value="selected">Selecionados (checkbox)</option>
+                        <option value="pool">POOL (automático)</option>
+                        <option value="owner">Vendedor (pelo filtro “Dono”)</option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>Modo</span>
+                      <select
+                        value={assignMode}
+                        onChange={(e) => setAssignMode(e.target.value as AssignMode)}
+                        disabled={assigning}
+                        style={{ ...selectBase, width: '100%', minWidth: 0 }}
+                      >
+                        <option value="manual">Manual (1 vendedor)</option>
+                        <option value="round_robin">Automático (round-robin)</option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>Destino</span>
+
+                      {assignMode === 'manual' ? (
+                        <select value={toOwnerId} onChange={(e) => setToOwnerId(e.target.value)} disabled={assigning} style={{ ...selectBase, width: '100%', minWidth: 0 }}>
+                          <option value="">— selecione o vendedor —</option>
+                          {ownerOptions.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, opacity: 0.9 }}>
+                            <input type="checkbox" checked={useAllSellers} onChange={(e) => setUseAllSellers(e.target.checked)} disabled={assigning} />
+                            Usar todos vendedores
+                          </label>
+
+                          {!useAllSellers ? (
+                            <select
+                              multiple
+                              value={sellerIds}
+                              onChange={(e) => setSellerIds(Array.from(e.target.selectedOptions).map((o) => o.value))}
+                              disabled={assigning}
+                              style={{ ...selectBase, width: '100%', minWidth: 0, height: 120, padding: '8px 10px' }}
+                            >
+                              {ownerOptions.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
+                        </div>
+                      )}
+                    </label>
+
+                    {assignSource === 'owner' ? (
+                      <label style={{ display: 'grid', gap: 6 }}>
+                        <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>Quantidade (obrigatória)</span>
+                        <input
+                          value={qty}
+                          onChange={(e) => setQty(e.target.value)}
+                          inputMode="numeric"
+                          placeholder="Ex.: 1000"
+                          style={{ ...inputBase, width: '100%' }}
+                          disabled={assigning}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+
+                  {/* Executar ação (sempre visível) */}
+                  <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                    <button
+                      type="button"
+                      onClick={doReturnToPool}
+                      disabled={!canRunAssign}
+                      style={returnIsPrimary ? primaryBtn : dangerBtn}
+                      title={assignSource === 'owner' ? `Origem: ${ownerLabelFromFilter}` : ''}
+                    >
+                      Devolver ao POOL
+                    </button>
+
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button type="button" onClick={doAssign} disabled={!canRunAssign || returnIsPrimary} style={!returnIsPrimary ? primaryBtn : secondaryBtn}>
+                        {assigning ? 'Processando…' : assignMode === 'manual' ? 'Transferir / Atribuir' : 'Distribuir'}
+                      </button>
+
+                      {assignProgress ? (
+                        <div style={{ fontSize: 12, opacity: 0.8 }}>
+                          Progresso: <b>{assignProgress.done}</b> / <b>{assignProgress.total}</b>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Toggle avançado */}
+                  <div style={{ marginTop: 12 }}>
+                    <button type="button" onClick={() => setShowAdvanced((v) => !v)} disabled={assigning} style={chipBtn}>
+                      {showAdvanced ? 'Ocultar opções avançadas' : 'Opções avançadas'}
+                    </button>
+                  </div>
+
+                  {/* Avançado */}
+                  {showAdvanced ? (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        paddingTop: 12,
+                        borderTop: '1px solid #1f1f1f',
+                        display: 'grid',
+                        gap: 10,
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                        alignItems: 'end',
+                      }}
+                    >
+                      <label style={{ display: 'grid', gap: 6 }}>
+                        <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>
+                          Quantidade {assignSource === 'selected' ? '(opcional)' : '(obrigatória)'}
+                        </span>
+                        <input
+                          value={qty}
+                          onChange={(e) => setQty(e.target.value)}
+                          inputMode="numeric"
+                          placeholder={assignSource === 'selected' ? 'Ex.: 50 (opcional)' : 'Ex.: 1000'}
+                          style={{ ...inputBase, width: '100%' }}
+                          disabled={assigning}
+                        />
+                      </label>
+
+                      {assignSource !== 'selected' ? (
+                        <label style={{ display: 'grid', gap: 6 }}>
+                          <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>Lote</span>
+                          <input
+                            value={batchSize}
+                            onChange={(e) => setBatchSize(e.target.value)}
+                            inputMode="numeric"
+                            placeholder="Ex.: 1000"
+                            style={{ ...inputBase, width: '100%' }}
+                            disabled={assigning}
+                          />
+                        </label>
+                      ) : null}
+
+                      <label style={{ display: 'grid', gap: 6 }}>
+                        <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>Ordem</span>
+                        <select
+                          value={orderMode}
+                          onChange={(e) => setOrderMode(e.target.value as OrderMode)}
+                          disabled={assigning}
+                          style={{ ...selectBase, width: '100%', minWidth: 0 }}
+                        >
+                          <option value="oldest">Mais antigos</option>
+                          <option value="newest">Mais recentes</option>
+                          <option value="random">Aleatório</option>
+                        </select>
+                      </label>
+
+                      <div>
+                        <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, opacity: 0.9, marginTop: 18 }}>
+                          <input
+                            type="checkbox"
+                            checked={assignSource === 'pool' ? true : onlyPool}
+                            onChange={(e) => setOnlyPool(e.target.checked)}
+                            disabled={assigning || assignSource === 'pool' || assignSource === 'owner'}
+                          />
+                          Somente POOL (evita reatribuição)
+                        </label>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Tabela */}
       <div style={{ overflowX: 'auto' }}>
@@ -861,14 +1222,24 @@ export default function AdminLeadsTable({
             ) : (
               rows.map((l) => {
                 const ownerLabel = l.owner_id ? ownerLabelById.get(l.owner_id) ?? 'Vendedor' : 'POOL'
+                const selected = isRowSelected(l.id)
+
                 return (
-                  <tr key={l.id} style={{ borderBottom: '1px solid #1f1f1f' }}>
+                  <tr
+                    key={l.id}
+                    onClick={() => toggleRow(l.id)}
+                    style={{
+                      borderBottom: '1px solid #1f1f1f',
+                      background: selected ? 'rgba(59,130,246,0.10)' : 'transparent',
+                      cursor: 'pointer',
+                    }}
+                  >
                     <td style={{ padding: '10px 8px' }}>
-                      <input type="checkbox" checked={isRowSelected(l.id)} onChange={() => toggleRow(l.id)} disabled={loading} />
+                      <input type="checkbox" checked={selected} onChange={() => toggleRow(l.id)} onClick={(e) => e.stopPropagation()} disabled={loading} />
                     </td>
 
                     <td style={{ padding: '10px 8px' }}>
-                      <a href={`/leads/${l.id}`} style={{ color: 'white', textDecoration: 'none' }}>
+                      <a href={`/leads/${l.id}`} onClick={(e) => e.stopPropagation()} style={{ color: 'white', textDecoration: 'none' }}>
                         <b>{l.name}</b>
                       </a>
                     </td>
@@ -877,7 +1248,7 @@ export default function AdminLeadsTable({
                     <td style={{ padding: '10px 8px', opacity: 0.75 }}>{new Date(l.created_at).toLocaleString()}</td>
                     <td style={{ padding: '10px 8px', opacity: 0.85 }}>{ownerLabel}</td>
                     <td style={{ padding: '10px 8px' }}>
-                      <a href={`/leads/${l.id}`} style={{ color: '#9aa', textDecoration: 'none' }}>
+                      <a href={`/leads/${l.id}`} onClick={(e) => e.stopPropagation()} style={{ color: '#9aa', textDecoration: 'none' }}>
                         Abrir →
                       </a>
                     </td>

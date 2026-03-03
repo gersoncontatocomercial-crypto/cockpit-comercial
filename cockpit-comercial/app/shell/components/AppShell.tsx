@@ -3,6 +3,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import GlobalSearch from './GlobalSearch.client'
+import AuthButton from './AuthButton.client'
 
 function NavBtn({
   href,
@@ -42,6 +44,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return pathname?.startsWith(href)
   }
 
+  // Mantém como "Simular meta"
+  const topTitle =
+    pathname?.startsWith('/leads')
+      ? 'Pipeline Comercial'
+      : pathname?.startsWith('/relatorios')
+      ? 'Relatórios'
+      : pathname?.startsWith('/simular-meta')
+      ? 'Simular meta'
+      : 'Dashboard'
+
   return (
     <div
       style={{
@@ -49,7 +61,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         display: 'flex',
         background: '#0b0b0b',
         color: 'white',
-        overflow: 'hidden', // 🔥 chave principal
+        overflow: 'hidden',
       }}
     >
       {/* Sidebar */}
@@ -63,7 +75,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           overflow: 'hidden',
         }}
       >
-        {/* conteúdo da sidebar igual ao seu */}
         <div
           style={{
             display: 'flex',
@@ -98,6 +109,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <NavBtn href="/dashboard" label="Dashboard" active={isActive('/dashboard')} />
           <NavBtn href="/leads" label="Pipeline (Kanban)" active={isActive('/leads')} />
           <NavBtn href="/relatorios" label="Relatórios" active={isActive('/relatorios')} />
+          <NavBtn href="/simular-meta" label="Simular meta" active={isActive('/simular-meta')} />
           <NavBtn href="/platform" label="Configurações" active={isActive('/platform')} />
         </div>
       </aside>
@@ -108,7 +120,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden', // 🔥 impede scroll geral
+          overflow: 'hidden',
         }}
       >
         {/* Topbar FIXA */}
@@ -120,9 +132,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             padding: '14px 18px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            gap: 14,
           }}
         >
+<<<<<<< Updated upstream
           <div>
             <div style={{ fontWeight: 800 }}>
               {pathname?.startsWith('/leads')
@@ -136,29 +149,55 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div style={{ fontSize: 12, opacity: 0.7 }}>
               Navegação governada por menu lateral (estilo SaaS).
             </div>
+=======
+          {/* Esquerda: título */}
+          <div style={{ minWidth: 220 }}>
+            <div style={{ fontWeight: 800 }}>{topTitle}</div>
+>>>>>>> Stashed changes
           </div>
 
-          <Link
-            href="/leads"
+          {/* Meio: pesquisar */}
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+            <GlobalSearch />
+          </div>
+
+          {/* Direita: ações */}
+          <div
             style={{
-              padding: '10px 12px',
-              borderRadius: 10,
-              border: '1px solid #2a2a2a',
-              background: '#111',
-              color: 'white',
-              textDecoration: 'none',
-              fontSize: 13,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              minWidth: 220,
+              justifyContent: 'flex-end',
             }}
           >
-            Ir para Pipeline
-          </Link>
+            {!pathname?.startsWith('/leads') ? (
+              <Link
+                href="/leads"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: '1px solid #2a2a2a',
+                  background: '#111',
+                  color: 'white',
+                  textDecoration: 'none',
+                  fontSize: 13,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Ir para Pipeline
+              </Link>
+            ) : null}
+
+            <AuthButton />
+          </div>
         </header>
 
         {/* CONTEÚDO ROLÁVEL */}
         <div
           style={{
             flex: 1,
-            overflow: 'auto', // 🔥 agora só essa parte rola
+            overflow: 'auto',
             padding: 18,
           }}
         >

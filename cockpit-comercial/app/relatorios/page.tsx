@@ -173,6 +173,22 @@ export default async function RelatoriosPage() {
     .slice()
     .sort((a, b) => (b.loss_rate ?? 0) - (a.loss_rate ?? 0))[0]
 
+  const navLinkBase: React.CSSProperties = {
+    color: '#9aa',
+    textDecoration: 'none',
+    fontSize: 13,
+    padding: '8px 12px',
+    borderRadius: 10,
+    border: '1px solid #333',
+    background: 'transparent',
+  }
+
+  const navLinkActive: React.CSSProperties = {
+    ...navLinkBase,
+    color: 'white',
+    background: '#111',
+  }
+
   return (
     <div style={{ width: '100%', padding: 40, color: 'white' }}>
       <h1 style={{ textAlign: 'center', marginBottom: 8 }}>Relatórios</h1>
@@ -184,51 +200,24 @@ export default async function RelatoriosPage() {
           gap: 12,
           marginTop: 10,
           marginBottom: 30,
+          flexWrap: 'wrap',
         }}
       >
-        <a
-          href="/leads"
-          style={{
-            color: '#9aa',
-            textDecoration: 'none',
-            fontSize: 13,
-            padding: '8px 12px',
-            borderRadius: 10,
-            border: '1px solid #333',
-            background: 'transparent',
-          }}
-        >
+        <a href="/leads" style={navLinkBase}>
           Pipeline
         </a>
 
-        <a
-          href="/prioridade"
-          style={{
-            color: '#9aa',
-            textDecoration: 'none',
-            fontSize: 13,
-            padding: '8px 12px',
-            borderRadius: 10,
-            border: '1px solid #333',
-            background: 'transparent',
-          }}
-        >
+        <a href="/prioridade" style={navLinkBase}>
           Prioridade
         </a>
 
-        <a
-          href="/relatorios"
-          style={{
-            color: 'white',
-            textDecoration: 'none',
-            fontSize: 13,
-            padding: '8px 12px',
-            borderRadius: 10,
-            border: '1px solid #333',
-            background: '#111',
-          }}
-        >
+        <a href="/relatorios" style={navLinkActive}>
           Relatórios
+        </a>
+
+        {/* ✅ Novo: subpágina do Relatório IA */}
+        <a href="/relatorios/ia" style={navLinkBase} title="Relatório de IA (objeções, próximos passos, score)">
+          Relatório IA
         </a>
       </div>
 
@@ -267,7 +256,6 @@ export default async function RelatoriosPage() {
               </div>
             </div>
 
-            {/* ✅ CTA sempre disponível */}
             <a
               href="/leads?risk=1"
               style={{
@@ -329,15 +317,15 @@ export default async function RelatoriosPage() {
                     <tbody>
                       {topRiskLeads.map((r) => (
                         <tr key={r.lead_id} style={{ borderBottom: '1px solid #1f1f1f' }}>
-                      <td style={{ padding: '10px 8px' }}>
-  <a
-    href={`/leads?risk=1&lead=${encodeURIComponent(r.lead_id)}`}
-    style={{ color: 'white', textDecoration: 'none' }}
-    title="Abrir no Pipeline e destacar este lead"
-  >
-    <b>{r.name}</b>
-  </a>
-</td>
+                          <td style={{ padding: '10px 8px' }}>
+                            <a
+                              href={`/leads?risk=1&lead=${encodeURIComponent(r.lead_id)}`}
+                              style={{ color: 'white', textDecoration: 'none' }}
+                              title="Abrir no Pipeline e destacar este lead"
+                            >
+                              <b>{r.name}</b>
+                            </a>
+                          </td>
 
                           <td style={{ padding: '10px 8px', textTransform: 'capitalize' }}>
                             {r.stage}

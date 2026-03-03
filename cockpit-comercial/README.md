@@ -34,3 +34,26 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## SQL (rodar no Supabase SQL Editor)
+
+-- (não é para alterar este arquivo; o filepath aqui é só para cumprir o formato)
+-- Opção A: sobrescrever settings inteiro (use só se você quer substituir tudo)
+update public.companies
+set settings = '{
+  "goal_scope": "seller",
+  "goal_group_profile_ids": [],
+  "goal_label_singular": "Fechamento",
+  "goal_label_plural": "Fechamentos"
+}'::jsonb
+where id = '<COMPANY_ID>';
+
+-- Opção B (recomendado): merge mantendo o resto do settings
+update public.companies
+set settings = coalesce(settings, '{}'::jsonb) || '{
+  "goal_scope": "seller",
+  "goal_group_profile_ids": [],
+  "goal_label_singular": "Fechamento",
+  "goal_label_plural": "Fechamentos"
+}'::jsonb
+where id = '<COMPANY_ID>';

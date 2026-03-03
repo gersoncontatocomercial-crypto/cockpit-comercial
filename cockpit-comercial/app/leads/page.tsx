@@ -22,24 +22,30 @@ export default async function LeadsPage() {
     }
   )
 
-  const { data: auth } = await supabase.auth.getUser()
+  const { data: auth, error: authErr } = await supabase.auth.getUser()
   const user = auth?.user
-  if (!user?.id) redirect('/login')
+
+  if (authErr || !user?.id) redirect('/login')
 
   const { data: profile, error: profErr } = await supabase
     .from('profiles')
-    .select('company_id, role, full_name')
+    .select('company_id, role, full_name, email')
     .eq('id', user.id)
     .single()
 
+  // Usuário existe no auth, mas não tem profile ou company -> manda pro login por enquanto
+  // (Se quiser, depois criamos /cadastro/complete-profile)
   if (profErr || !profile?.company_id) redirect('/login')
+
+  const role = (profile.role ?? 'member') as string
+  const label = (profile.full_name ?? profile.email ?? user.email ?? user.id) as string
 
   return (
     <LeadsClient
       userId={user.id}
       companyId={profile.company_id}
-      role={profile.role as string}
-      userLabel={(profile.full_name ?? user.email ?? user.id) as string}
+      role={role}
+      userLabel={label}
     />
   )
 }

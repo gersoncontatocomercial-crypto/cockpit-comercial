@@ -7,6 +7,9 @@ import NextContactForm from './NextContactForm'
 import LeadActions from './LeadActions'
 import LeadProfileTabs from './LeadProfileTabs'
 
+// ✅ novo: box client da IA (auto refresh sem F5)
+import LeadAIBoxClient from './LeadAIBoxClient'
+
 function onlyDigits(v: string) {
   return (v || '').replace(/\D/g, '')
 }
@@ -17,7 +20,6 @@ function whatsappLink(phone: string | null) {
   return `https://wa.me/${full}`
 }
 
-// ✅ Blindagem: evita "importar" (ou qualquer string) cair aqui e estourar UUID no banco
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -54,9 +56,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
   const leadId = params?.id
 
   if (!leadId || leadId === 'undefined') redirect('/leads')
-
-  // ✅ Se NÃO for UUID, isso NÃO é um lead id => 404 limpo
-  // Isso impede /leads/importar de cair aqui e quebrar
   if (!UUID_RE.test(leadId)) notFound()
 
   const supabase = createServerClient(
@@ -82,7 +81,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
 
   if (userErr || !user) redirect('/login')
 
-  // company_id do usuário
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('company_id')
@@ -100,7 +98,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
 
   const companyId = profile.company_id as string
 
-  // Lead validado por empresa
   const { data: lead, error: leadError } = await supabase
     .from('leads')
     .select('id, name, phone, status, created_at, next_action, next_contact_at, company_id')
@@ -117,7 +114,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
     )
   }
 
-  // ✅ PERFIL (CPF/Email/CEP/Endereço)
   const { data: leadProfile } = await supabase
     .from('lead_profiles')
     .select(
@@ -127,7 +123,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
     .eq('lead_id', leadId)
     .maybeSingle<LeadProfileRow>()
 
-  // Interações
   const { data: interactions, error: interError } = await supabase
     .from('lead_interactions')
     .select('id, type, note, created_at')
@@ -135,7 +130,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
-  // Eventos do funil
   const { data: events, error: eventsErr } = await supabase
     .from('lead_events')
     .select('id, event_type, from_stage, to_stage, created_at, metadata')
@@ -155,13 +149,7 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline' }}>
         <h1 style={{ marginTop: 16, marginBottom: 6 }}>{lead.name}</h1>
 
-        <LeadActions
-          leadId={lead.id}
-          companyId={companyId}
-          userId={user.id}
-          currentStatus={lead.status}
-          phone={lead.phone}
-        />
+        <LeadActions leadId={lead.id} companyId={companyId} userId={user.id} currentStatus={lead.status} phone={lead.phone} />
       </div>
 
       <div style={{ opacity: 0.9, marginTop: 8 }}>
@@ -182,6 +170,17 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
         </div>
         <div style={{ fontSize: 12, opacity: 0.7 }}>Criado em: {lead.created_at}</div>
       </div>
+
+      {/* ✅ IA box no client (atualiza sem F5) */}
+      <LeadAIBoxClient
+        lead={{
+          id: lead.id,
+          company_id: companyId,
+          name: lead.name,
+          phone: lead.phone,
+          status: lead.status,
+        }}
+      />
 
       <LeadProfileTabs leadId={leadId} companyId={companyId} initialProfile={leadProfile ?? null} />
 
