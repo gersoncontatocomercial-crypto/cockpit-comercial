@@ -129,6 +129,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 ? 'Pipeline Comercial'
                 : pathname?.startsWith('/relatorios')
                 ? 'Relatórios'
+                : pathname?.startsWith('/platform')
+                ? 'Configurações'
                 : 'Dashboard'}
             </div>
             <div style={{ fontSize: 12, opacity: 0.7 }}>
