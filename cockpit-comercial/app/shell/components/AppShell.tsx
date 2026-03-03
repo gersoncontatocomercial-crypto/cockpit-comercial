@@ -44,12 +44,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return pathname?.startsWith(href)
   }
 
-  // Mantém como "Simular meta"
   const topTitle =
     pathname?.startsWith('/leads')
       ? 'Pipeline Comercial'
       : pathname?.startsWith('/relatorios')
       ? 'Relatórios'
+      : pathname?.startsWith('/platform')
+      ? 'Configurações'
       : pathname?.startsWith('/simular-meta')
       ? 'Simular meta'
       : 'Dashboard'
@@ -106,11 +107,31 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-          <NavBtn href="/dashboard" label="Dashboard" active={isActive('/dashboard')} />
-          <NavBtn href="/leads" label="Pipeline (Kanban)" active={isActive('/leads')} />
-          <NavBtn href="/relatorios" label="Relatórios" active={isActive('/relatorios')} />
-          <NavBtn href="/simular-meta" label="Simular meta" active={isActive('/simular-meta')} />
-          <NavBtn href="/platform" label="Configurações" active={isActive('/platform')} />
+          <NavBtn
+            href="/dashboard"
+            label="Dashboard"
+            active={isActive('/dashboard')}
+          />
+          <NavBtn
+            href="/leads"
+            label="Pipeline (Kanban)"
+            active={isActive('/leads')}
+          />
+          <NavBtn
+            href="/relatorios"
+            label="Relatórios"
+            active={isActive('/relatorios')}
+          />
+          <NavBtn
+            href="/simular-meta"
+            label="Simular meta"
+            active={isActive('/simular-meta')}
+          />
+          <NavBtn
+            href="/platform"
+            label="Configurações"
+            active={isActive('/platform')}
+          />
         </div>
       </aside>
 
@@ -135,25 +156,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             gap: 14,
           }}
         >
-<<<<<<< Updated upstream
-          <div>
-            <div style={{ fontWeight: 800 }}>
-              {pathname?.startsWith('/leads')
-                ? 'Pipeline Comercial'
-                : pathname?.startsWith('/relatorios')
-                ? 'Relatórios'
-                : pathname?.startsWith('/platform')
-                ? 'Configurações'
-                : 'Dashboard'}
-            </div>
+          <div style={{ minWidth: 220 }}>
+            <div style={{ fontWeight: 800 }}>{topTitle}</div>
             <div style={{ fontSize: 12, opacity: 0.7 }}>
               Navegação governada por menu lateral (estilo SaaS).
             </div>
-=======
-          {/* Esquerda: título */}
-          <div style={{ minWidth: 220 }}>
-            <div style={{ fontWeight: 800 }}>{topTitle}</div>
->>>>>>> Stashed changes
           </div>
 
           {/* Meio: pesquisar */}
