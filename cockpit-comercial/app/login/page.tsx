@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { supabase } from '../lib/supabase'
+import { supabaseBrowser } from '../lib/supabaseBrowser'
 
 export default function LoginPage() {
   const router = useRouter()
+  const supabase = useMemo(() => supabaseBrowser(), [])
 
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
@@ -22,15 +23,10 @@ export default function LoginPage() {
 
     setLoading(true)
 
-    console.log('[LOGIN] tentando', { email })
-
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password: senha,
     })
-
-    console.log('[LOGIN] data:', data)
-    console.log('[LOGIN] error:', error)
 
     setLoading(false)
 
@@ -40,14 +36,12 @@ export default function LoginPage() {
     }
 
     if (!data?.session) {
-      alert(
-        'Login respondeu sem sessão. Verifique no Supabase se "Email confirmations" está ligado ou se o usuário está confirmado.'
-      )
+      alert('Login respondeu sem sessão. Verifique se o usuário está confirmado no Supabase.')
       return
     }
 
-    console.log('[LOGIN] vai para /dashboard agora')
-    router.push('/dashboard')
+    // importante: garante re-render/SSR do App Router com cookie atualizado
+    router.replace('/dashboard')
     router.refresh()
   }
 
@@ -63,12 +57,7 @@ export default function LoginPage() {
     >
       <h2 style={{ textAlign: 'center' }}>Login</h2>
 
-      <input
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Email"
-        autoComplete="email"
-      />
+      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" autoComplete="email" />
 
       <input
         value={senha}
@@ -82,15 +71,7 @@ export default function LoginPage() {
         {loading ? 'Entrando...' : 'Entrar'}
       </button>
 
-      {/* ✅ Ações adicionais */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          marginTop: 6,
-          fontSize: 14,
-        }}
-      >
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 14 }}>
         <Link href="/cadastro" style={{ textDecoration: 'underline' }}>
           Quero uma demonstração
         </Link>

@@ -5,7 +5,7 @@ import LeadForm from './components/LeadForm'
 import AdminLeadsTable from './components/AdminLeadsTable'
 import ImportExcelDialog from './components/ImportExcelDialog'
 import SellerKanban from './components/SellerKanban'
-import { supabase } from '../lib/supabase'
+import { supabaseBrowser } from '../lib/supabaseBrowser'
 
 type LeadRow = {
   id: string
@@ -30,6 +30,7 @@ export default function LeadsClient({
   role: string
   userLabel: string
 }) {
+  const supabase = React.useMemo(() => supabaseBrowser(), [])
   const isAdmin = role === 'admin'
 
   const [loading, setLoading] = React.useState(false)
@@ -68,7 +69,7 @@ export default function LeadsClient({
     return () => {
       alive = false
     }
-  }, [isAdmin, companyId])
+  }, [isAdmin, companyId, supabase])
 
   return (
     <div style={{ color: 'white' }}>

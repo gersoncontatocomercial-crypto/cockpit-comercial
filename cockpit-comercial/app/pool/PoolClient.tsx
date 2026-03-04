@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { supabase } from '../lib/supabase' // ajuste se seu path for outro
+import { supabaseBrowser } from '../lib/supabaseBrowser'
 
 type Profile = {
   id: string
@@ -29,6 +29,8 @@ export default function PoolClient({
   companyId: string
   userLabel: string
 }) {
+  const supabase = React.useMemo(() => supabaseBrowser(), [])
+
   const [sellers, setSellers] = React.useState<Profile[]>([])
   const [leads, setLeads] = React.useState<Lead[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -37,22 +39,21 @@ export default function PoolClient({
   async function load() {
     setLoading(true)
 
-    const [{ data: sellersData, error: sellersErr }, { data: leadsData, error: leadsErr }] =
-      await Promise.all([
-        supabase
-          .from('profiles')
-          .select('id, full_name, email, role')
-          .eq('company_id', companyId)
-          .in('role', ['seller', 'consultor']) // ajuste para os seus roles reais
-          .order('full_name', { ascending: true }),
-        supabase
-          .from('leads')
-          .select('id, name, phone, status, owner_id, created_at')
-          .eq('company_id', companyId)
-          .eq('status', 'Novo')
-          .is('owner_id', null) // ✅ pool: não atribuído
-          .order('created_at', { ascending: false }),
-      ])
+    const [{ data: sellersData, error: sellersErr }, { data: leadsData, error: leadsErr }] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .eq('company_id', companyId)
+        .in('role', ['seller', 'consultor']) // ajuste para os seus roles reais
+        .order('full_name', { ascending: true }),
+      supabase
+        .from('leads')
+        .select('id, name, phone, status, owner_id, created_at')
+        .eq('company_id', companyId)
+        .eq('status', 'novo') // ✅ status do sistema é minúsculo
+        .is('owner_id', null) // ✅ pool: não atribuído
+        .order('created_at', { ascending: false }),
+    ])
 
     if (!sellersErr) setSellers((sellersData ?? []) as any)
     if (!leadsErr) setLeads((leadsData ?? []) as any)
@@ -61,7 +62,7 @@ export default function PoolClient({
   }
 
   React.useEffect(() => {
-    load()
+    void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
@@ -70,12 +71,12 @@ export default function PoolClient({
     setAssigningId(leadId)
 
     // ✅ encaminhar lead para vendedor
-    // Recomendado: mover para "Contato" ao atribuir (para aparecer no Kanban do vendedor)
+    // Recomendado: mover para "contato" ao atribuir (para aparecer no Kanban do vendedor)
     const { error } = await supabase
       .from('leads')
       .update({
         owner_id: newOwnerId,
-        status: 'Contato',
+        status: 'contato',
       })
       .eq('id', leadId)
       .eq('company_id', companyId)
@@ -113,7 +114,7 @@ export default function PoolClient({
               fontSize: 13,
             }}
           >
-            Ver Pipeline (Vendedor)
+            Ver Pipeline
           </Link>
 
           <button
@@ -202,9 +203,7 @@ export default function PoolClient({
                       ))}
                     </select>
 
-                    {assigningId === lead.id ? (
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>Encaminhando…</div>
-                    ) : null}
+                    {assigningId === lead.id ? <div style={{ fontSize: 12, opacity: 0.7 }}>Encaminhando…</div> : null}
                   </div>
                 </div>
               ))}

@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '../lib/supabase'
+import { supabaseBrowser } from '../lib/supabaseBrowser'
 
 export default function ResetSenhaPage() {
   const router = useRouter()
+  const supabase = useMemo(() => supabaseBrowser(), [])
+
   const [senha, setSenha] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -22,7 +24,7 @@ export default function ResetSenhaPage() {
     if (error) return alert('Erro: ' + error.message)
 
     alert('Senha atualizada. Faça login novamente.')
-    router.push('/login')
+    router.replace('/login')
     router.refresh()
   }
 
