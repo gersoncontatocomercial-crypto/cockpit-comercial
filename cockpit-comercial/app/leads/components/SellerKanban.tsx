@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
-import { supabase } from '../../lib/supabase'
+import { supabaseBrowser } from '../../lib/supabaseBrowser'
 import ConversationPasteAI from './ConversationPasteAI'
 
 type Lead = {
@@ -16,8 +16,17 @@ type Lead = {
   current_stage_id?: string | null
 }
 
-const STATUSES = ['novo', 'contato', 'respondeu', 'negociacao', 'fechado', 'perdido'] as const
+const STATUSES = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido'] as const
 type Status = (typeof STATUSES)[number]
+
+const STATUS_LABEL: Record<Status, string> = {
+  novo: 'Novo',
+  contato: 'Contato',
+  respondeu: 'Respondeu',
+  negociacao: 'Negociação',
+  ganho: 'Ganho',
+  perdido: 'Perdido',
+}
 
 function onlyDigits(v: string) {
   return (v || '').replace(/\D/g, '')
@@ -45,11 +54,13 @@ function parseBRLMoney(input: string) {
 type PendingWonMove = {
   leadId: string
   fromStatus: Status
-  toStatus: 'fechado'
+  toStatus: 'ganho'
   secondsInFromStage: number
 }
 
 export default function SellerKanban({ userId, companyId }: { userId: string; companyId: string }) {
+  const supabase = useMemo(() => supabaseBrowser(), [])
+
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
@@ -89,7 +100,7 @@ export default function SellerKanban({ userId, companyId }: { userId: string; co
 
     setLeads((data ?? []) as any)
     setLoading(false)
-  }, [companyId, userId])
+  }, [companyId, userId, supabase])
 
   useEffect(() => {
     if (!userId || !companyId) return
@@ -135,12 +146,12 @@ export default function SellerKanban({ userId, companyId }: { userId: string; co
       setSavingLeadId(leadId)
 
       // valida ganho (dealValue vem do modal)
-      const dealValue = toStatus === 'fechado' ? (dealValueOverride ?? null) : null
-      const toStageId = toStatus === 'fechado' ? WON_STAGE_ID : null
+      const dealValue = toStatus === 'ganho' ? (dealValueOverride ?? null) : null
+      const toStageId = toStatus === 'ganho' ? WON_STAGE_ID : null
 
-      if (toStatus === 'fechado' && (!dealValue || dealValue <= 0)) {
+      if (toStatus === 'ganho' && (!dealValue || dealValue <= 0)) {
         setSavingLeadId(null)
-        throw new Error('Informe um valor válido para Fechado ganho.')
+        throw new Error('Informe um valor válido para Ganho.')
       }
 
       try {
@@ -162,7 +173,7 @@ export default function SellerKanban({ userId, companyId }: { userId: string; co
         setSavingLeadId(null)
       }
     },
-    [companyId]
+    [companyId, supabase]
   )
 
   const confirmWonMove = useCallback(async () => {
@@ -176,7 +187,7 @@ export default function SellerKanban({ userId, companyId }: { userId: string; co
     }
 
     setSavingWon(true)
-    moveLocal(pendingWonMove.leadId, 'fechado')
+    moveLocal(pendingWonMove.leadId, 'ganho')
 
     try {
       await performMove(
@@ -212,8 +223,8 @@ export default function SellerKanban({ userId, companyId }: { userId: string; co
       const startMs = new Date(startIso).getTime()
       const secondsInFromStage = Math.max(1, Math.floor((Date.now() - startMs) / 1000))
 
-      if (toStatus === 'fechado') {
-        setPendingWonMove({ leadId, fromStatus, toStatus: 'fechado', secondsInFromStage })
+      if (toStatus === 'ganho') {
+        setPendingWonMove({ leadId, fromStatus, toStatus: 'ganho', secondsInFromStage })
         setWonValueRaw('')
         return
       }
@@ -308,7 +319,7 @@ export default function SellerKanban({ userId, companyId }: { userId: string; co
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div style={{ textTransform: 'capitalize', fontWeight: 900 }}>{st}</div>
+                    <div style={{ fontWeight: 900 }}>{STATUS_LABEL[st]}</div>
                     <div style={{ opacity: 0.7, fontSize: 12 }}>{counts[st]}</div>
                   </div>
 

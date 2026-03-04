@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { supabase } from '../lib/supabase'
+import { supabaseBrowser } from '../lib/supabaseBrowser'
 
 type RpcStats = {
   start_date: string
@@ -100,15 +100,7 @@ function maxDate(a: Date, b: Date) {
   return a > b ? a : b
 }
 
-function Card({
-  title,
-  value,
-  subtitle,
-}: {
-  title: string
-  value: React.ReactNode
-  subtitle?: React.ReactNode
-}) {
+function Card({ title, value, subtitle }: { title: string; value: React.ReactNode; subtitle?: React.ReactNode }) {
   return (
     <div
       style={{
@@ -121,9 +113,7 @@ function Card({
       <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>{title}</div>
       <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.2 }}>{value}</div>
       {subtitle ? (
-        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75, lineHeight: 1.5 }}>
-          {subtitle}
-        </div>
+        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75, lineHeight: 1.5 }}>{subtitle}</div>
       ) : null}
     </div>
   )
@@ -163,6 +153,8 @@ function Section({
 }
 
 export default function SimularMetaPage() {
+  const supabase = React.useMemo(() => supabaseBrowser(), [])
+
   const [metaBRL, setMetaBRL] = React.useState<number>(500000)
 
   const [ticketConfigurado, setTicketConfigurado] = React.useState<number>(2000)
@@ -219,16 +211,12 @@ export default function SimularMetaPage() {
 
   const taxa = Math.min(1, Math.max(0.0001, (taxaPct || 0) / 100))
 
-  const fechamentosNecessarios =
-    selectedTicket > 0 ? Math.ceil(metaBRL / selectedTicket) : null
+  const fechamentosNecessarios = selectedTicket > 0 ? Math.ceil(metaBRL / selectedTicket) : null
 
-  const contatosNecessarios =
-    fechamentosNecessarios != null ? Math.ceil(fechamentosNecessarios / taxa) : null
+  const contatosNecessarios = fechamentosNecessarios != null ? Math.ceil(fechamentosNecessarios / taxa) : null
 
   const contatosFaltantes =
-    stats && contatosNecessarios != null
-      ? Math.max(contatosNecessarios - (stats.contatados || 0), 0)
-      : null
+    stats && contatosNecessarios != null ? Math.max(contatosNecessarios - (stats.contatados || 0), 0) : null
 
   const [workingDays, setWorkingDays] = React.useState<Record<Weekday, boolean>>({
     0: false,
@@ -265,14 +253,10 @@ export default function SimularMetaPage() {
   }, [end, inicioRestante, workingDaysSet])
 
   const contatosPorDia =
-    contatosNecessarios != null && diasTrabalhadosNoPeriodo > 0
-      ? Math.ceil(contatosNecessarios / diasTrabalhadosNoPeriodo)
-      : null
+    contatosNecessarios != null && diasTrabalhadosNoPeriodo > 0 ? Math.ceil(contatosNecessarios / diasTrabalhadosNoPeriodo) : null
 
   const contatosPorDiaRestante =
-    contatosFaltantes != null && diasTrabalhadosRestantes > 0
-      ? Math.ceil(contatosFaltantes / diasTrabalhadosRestantes)
-      : null
+    contatosFaltantes != null && diasTrabalhadosRestantes > 0 ? Math.ceil(contatosFaltantes / diasTrabalhadosRestantes) : null
 
   async function run() {
     setLoading(true)
@@ -300,11 +284,7 @@ export default function SimularMetaPage() {
       const end = parseISODateInput(endDate)
       if (end < start) throw new Error('Data final precisa ser maior ou igual à data inicial.')
 
-      const { data: companies, error: companyErr } = await supabase
-        .from('companies')
-        .select('settings')
-        .eq('id', COMPANY_ID)
-        .limit(1)
+      const { data: companies, error: companyErr } = await supabase.from('companies').select('settings').eq('id', COMPANY_ID).limit(1)
 
       if (companyErr) throw companyErr
 
@@ -492,7 +472,7 @@ export default function SimularMetaPage() {
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Taxa de conversão (fechado/contato)</div>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Taxa de conversão (ganho/contato)</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input
                       type="text"
@@ -534,9 +514,7 @@ export default function SimularMetaPage() {
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
-                    Ticket médio (valor)
-                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Ticket médio (valor)</div>
                   <input
                     type="number"
                     value={ticketConfigurado}
@@ -557,8 +535,7 @@ export default function SimularMetaPage() {
 
               {stats ? (
                 <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7, lineHeight: 1.6 }}>
-                  Ticket real (período): {moneyBRL(stats.ticket_medio_real_periodo ?? 0)} | 90d:{' '}
-                  {moneyBRL(stats.ticket_medio_real_90d ?? 0)} | all:{' '}
+                  Ticket real (período): {moneyBRL(stats.ticket_medio_real_periodo ?? 0)} | 90d: {moneyBRL(stats.ticket_medio_real_90d ?? 0)} | all:{' '}
                   {moneyBRL(stats.ticket_medio_real_all_time ?? 0)}
                 </div>
               ) : null}
@@ -629,19 +606,9 @@ export default function SimularMetaPage() {
             <Card
               title="Contatos necessários"
               value={contatosNecessarios ?? '—'}
-              subtitle={
-                fechamentosNecessarios != null ? (
-                  <>
-                    {fechamentosNecessarios} ÷ {taxaPct}% (taxa de conversão)
-                  </>
-                ) : undefined
-              }
+              subtitle={fechamentosNecessarios != null ? <>{fechamentosNecessarios} ÷ {taxaPct}% (taxa de conversão)</> : undefined}
             />
-            <Card
-              title="Faltam contatos"
-              value={contatosFaltantes ?? '—'}
-              subtitle={stats ? <>Já contatados no período: {stats.contatados}</> : undefined}
-            />
+            <Card title="Faltam contatos" value={contatosFaltantes ?? '—'} subtitle={stats ? <>Já contatados no período: {stats.contatados}</> : undefined} />
             <Card
               title="Contatos por dia (a partir de hoje)"
               value={contatosPorDiaRestante ?? '—'}
@@ -689,7 +656,7 @@ export default function SimularMetaPage() {
             <Card title="Contato" value={stats?.contatados ?? '—'} />
             <Card title="Respondeu" value={stats?.respondeu ?? '—'} />
             <Card title="Negociação" value={stats?.negociacao ?? '—'} />
-            <Card title="Fechado" value={stats?.fechado ?? '—'} />
+            <Card title="Ganho" value={stats?.fechado ?? '—'} />
             <Card title="Perdido" value={stats?.perdido ?? '—'} />
           </div>
 
@@ -697,7 +664,7 @@ export default function SimularMetaPage() {
             <Card title="Taxa resposta" value={stats ? pct(stats.taxa_resposta) : '—'} />
             <Card title="Taxa negociação" value={stats ? pct(stats.taxa_negociacao) : '—'} />
             <Card title="Taxa fechamento" value={stats ? pct(stats.taxa_fechamento) : '—'} />
-            <Card title="Taxa de conversão (fechado/contato)" value={stats ? pct(stats.taxa_final_real) : '—'} />
+            <Card title="Taxa de conversão (ganho/contato)" value={stats ? pct(stats.taxa_final_real) : '—'} />
           </div>
 
           {showDebug ? (
