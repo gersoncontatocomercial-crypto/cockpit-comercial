@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabaseBrowser } from '../../lib/supabaseBrowser'
 
 export type OwnerOption = { id: string; label: string }
 
@@ -35,6 +35,8 @@ export default function AdminLeadsTable({
     pageSize: number
   }) => Promise<{ rows: LeadRow[]; total: number }>
 }) {
+  const supabase = useMemo(() => supabaseBrowser(), [])
+
   const [ownerId, setOwnerId] = useState<string>('ALL')
   const [status, setStatus] = useState<string>('all')
   const [search, setSearch] = useState<string>('')
@@ -256,9 +258,7 @@ export default function AdminLeadsTable({
 
   const requireHardConfirm = useCallback((actionLabel: string, n: number) => {
     if (n < CONFIRM_HARD_LIMIT) return true
-    const text = prompt(
-      `${actionLabel}\n\nVocê está prestes a afetar ${n} leads (>= ${CONFIRM_HARD_LIMIT}).\nDigite DEVOLVER para confirmar:`
-    )
+    const text = prompt(`${actionLabel}\n\nVocê está prestes a afetar ${n} leads (>= ${CONFIRM_HARD_LIMIT}).\nDigite DEVOLVER para confirmar:`)
     return (text ?? '').trim().toUpperCase() === 'DEVOLVER'
   }, [])
 
@@ -360,7 +360,7 @@ export default function AdminLeadsTable({
         skipped: Number(row?.skipped_count ?? 0),
       }
     },
-    [companyId, effectiveSellerIds, onlyPool, orderMode, search, status]
+    [companyId, effectiveSellerIds, onlyPool, orderMode, search, status, supabase]
   )
 
   const rpcReassignOwnerLeads = useCallback(
@@ -380,7 +380,7 @@ export default function AdminLeadsTable({
       const row = Array.isArray(data) ? data[0] : data
       return { changed: Number(row?.changed_count ?? 0) }
     },
-    [companyId, orderMode, search, status]
+    [companyId, orderMode, search, status, supabase]
   )
 
   const rpcRoundRobinFromOwner = useCallback(
@@ -400,7 +400,7 @@ export default function AdminLeadsTable({
       const row = Array.isArray(data) ? data[0] : data
       return { changed: Number(row?.changed_count ?? 0) }
     },
-    [companyId, orderMode, search, status]
+    [companyId, orderMode, search, status, supabase]
   )
 
   // ---------- Actions ----------
@@ -577,9 +577,7 @@ export default function AdminLeadsTable({
           if (res.assigned === 0) break
         }
 
-        setAssignResult(
-          `Atribuídos: ${assignedTotal} | Não encontrados no POOL para completar: ${Math.max(cfg.total - assignedTotal, 0)}`
-        )
+        setAssignResult(`Atribuídos: ${assignedTotal} | Não encontrados no POOL para completar: ${Math.max(cfg.total - assignedTotal, 0)}`)
         await reloadPage()
       } catch (e: any) {
         alert('Erro ao distribuir do POOL: ' + (e?.message ?? String(e)))
@@ -608,9 +606,7 @@ export default function AdminLeadsTable({
           return
         }
 
-        const ok = confirm(
-          `Transferir ${cfg.total} leads do vendedor "${ownerLabelFromFilter}" para "${ownerLabelById.get(toOwnerId) ?? toOwnerId}"?`
-        )
+        const ok = confirm(`Transferir ${cfg.total} leads do vendedor "${ownerLabelFromFilter}" para "${ownerLabelById.get(toOwnerId) ?? toOwnerId}"?`)
         if (!ok) return
 
         setAssigning(true)
@@ -848,12 +844,12 @@ export default function AdminLeadsTable({
 
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...selectBase, minWidth: 180 }}>
             <option value="all">Todos os status</option>
-            <option value="novo">novo</option>
-            <option value="contato">contato</option>
-            <option value="respondeu">respondeu</option>
-            <option value="negociacao">negociacao</option>
-            <option value="fechado">fechado</option>
-            <option value="perdido">perdido</option>
+            <option value="novo">Novo</option>
+            <option value="contato">Contato</option>
+            <option value="respondeu">Respondeu</option>
+            <option value="negociacao">Negociação</option>
+            <option value="ganho">Ganho</option>
+            <option value="perdido">Perdido</option>
           </select>
 
           <div style={{ ...labelSmall, marginLeft: 'auto' }}>
@@ -1039,7 +1035,12 @@ export default function AdminLeadsTable({
                       <span style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>Destino</span>
 
                       {assignMode === 'manual' ? (
-                        <select value={toOwnerId} onChange={(e) => setToOwnerId(e.target.value)} disabled={assigning} style={{ ...selectBase, width: '100%', minWidth: 0 }}>
+                        <select
+                          value={toOwnerId}
+                          onChange={(e) => setToOwnerId(e.target.value)}
+                          disabled={assigning}
+                          style={{ ...selectBase, width: '100%', minWidth: 0 }}
+                        >
                           <option value="">— selecione o vendedor —</option>
                           {ownerOptions.map((o) => (
                             <option key={o.id} value={o.id}>
@@ -1092,6 +1093,7 @@ export default function AdminLeadsTable({
                   <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
                     <button
                       type="button"
+                      // eslint-disable-next-line @typescript-eslint/no-misused-promises
                       onClick={doReturnToPool}
                       disabled={!canRunAssign}
                       style={returnIsPrimary ? primaryBtn : dangerBtn}
@@ -1101,7 +1103,13 @@ export default function AdminLeadsTable({
                     </button>
 
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <button type="button" onClick={doAssign} disabled={!canRunAssign || returnIsPrimary} style={!returnIsPrimary ? primaryBtn : secondaryBtn}>
+                      <button
+                        type="button"
+                        // eslint-disable-next-line @typescript-eslint/no-misused-promises
+                        onClick={doAssign}
+                        disabled={!canRunAssign || returnIsPrimary}
+                        style={!returnIsPrimary ? primaryBtn : secondaryBtn}
+                      >
                         {assigning ? 'Processando…' : assignMode === 'manual' ? 'Transferir / Atribuir' : 'Distribuir'}
                       </button>
 
@@ -1224,6 +1232,23 @@ export default function AdminLeadsTable({
                 const ownerLabel = l.owner_id ? ownerLabelById.get(l.owner_id) ?? 'Vendedor' : 'POOL'
                 const selected = isRowSelected(l.id)
 
+                const statusLabel =
+                  String(l.status ?? '')
+                    .trim()
+                    .toLowerCase() === 'negociacao'
+                    ? 'Negociação'
+                    : String(l.status ?? '')
+                        .trim()
+                        .toLowerCase() === 'ganho'
+                      ? 'Ganho'
+                      : String(l.status ?? '')
+                          .trim()
+                          .toLowerCase() === 'fechado'
+                        ? 'Ganho'
+                        : String(l.status ?? '')
+                            .trim()
+                            .toLowerCase()
+
                 return (
                   <tr
                     key={l.id}
@@ -1235,20 +1260,34 @@ export default function AdminLeadsTable({
                     }}
                   >
                     <td style={{ padding: '10px 8px' }}>
-                      <input type="checkbox" checked={selected} onChange={() => toggleRow(l.id)} onClick={(e) => e.stopPropagation()} disabled={loading} />
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleRow(l.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={loading}
+                      />
                     </td>
 
                     <td style={{ padding: '10px 8px' }}>
-                      <a href={`/leads/${l.id}`} onClick={(e) => e.stopPropagation()} style={{ color: 'white', textDecoration: 'none' }}>
+                      <a
+                        href={`/leads/${l.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ color: 'white', textDecoration: 'none' }}
+                      >
                         <b>{l.name}</b>
                       </a>
                     </td>
                     <td style={{ padding: '10px 8px', opacity: 0.9 }}>{l.phone ?? '—'}</td>
-                    <td style={{ padding: '10px 8px', textTransform: 'capitalize' }}>{l.status}</td>
+                    <td style={{ padding: '10px 8px', textTransform: 'capitalize' }}>{statusLabel}</td>
                     <td style={{ padding: '10px 8px', opacity: 0.75 }}>{new Date(l.created_at).toLocaleString()}</td>
                     <td style={{ padding: '10px 8px', opacity: 0.85 }}>{ownerLabel}</td>
                     <td style={{ padding: '10px 8px' }}>
-                      <a href={`/leads/${l.id}`} onClick={(e) => e.stopPropagation()} style={{ color: '#9aa', textDecoration: 'none' }}>
+                      <a
+                        href={`/leads/${l.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ color: '#9aa', textDecoration: 'none' }}
+                      >
                         Abrir →
                       </a>
                     </td>
