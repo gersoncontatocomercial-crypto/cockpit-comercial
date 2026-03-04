@@ -14,6 +14,7 @@ export default async function ConfiguracoesPage() {
         getAll() {
           return cookieStore.getAll()
         },
+        // importante: em Server Components não vamos setar cookie aqui
         setAll() {},
       },
     }
@@ -30,7 +31,7 @@ export default async function ConfiguracoesPage() {
 
   if (profErr || !profile?.company_id) redirect('/login')
 
-  let company = null
+  let company: any = null
   if (profile.role === 'admin') {
     const { data: companyData } = await supabase
       .from('companies')
@@ -44,6 +45,7 @@ export default async function ConfiguracoesPage() {
     <ConfiguracoesClient
       userId={auth.user.id}
       userEmail={auth.user.email ?? ''}
+      userRole={profile.role ?? null}
       profile={profile}
       company={company}
     />
