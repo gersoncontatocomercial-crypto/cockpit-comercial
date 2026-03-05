@@ -297,6 +297,8 @@ export default function SellerKanban({ userId, companyId }: { userId: string; co
           .select('goal_brl,ticket_oficial,taxa_alvo_pct')
           .eq('company_id', companyId)
           .eq('competence_id', comp.id)
+          // userId comes from the server-authenticated session prop; safe to use in filter.
+          // We prefer a seller-specific goal over the company-wide (null seller_id) one.
           .or(`seller_id.eq.${userId},seller_id.is.null`)
           .order('seller_id', { ascending: false })
           .limit(1)
@@ -346,13 +348,16 @@ export default function SellerKanban({ userId, companyId }: { userId: string; co
       const st = (l.status || 'novo').toLowerCase()
       ;(map[st] ?? (map[st] = [])).push(l)
     }
-    // Sort open columns by aging (oldest first → highest risk)
+    // Sort open columns by aging (oldest first → highest risk at top).
+    // Pre-compute timestamps once per lead to avoid O(n log n) Date constructions.
     for (const st of OPEN_STATUSES) {
-      ;(map[st] ?? []).sort(
-        (a, b) =>
-          new Date(a.stage_entered_at ?? a.created_at).getTime() -
-          new Date(b.stage_entered_at ?? b.created_at).getTime()
-      )
+      const col = map[st] ?? []
+      const withTs = col.map((l) => ({
+        lead: l,
+        ts: new Date(l.stage_entered_at ?? l.created_at).getTime(),
+      }))
+      withTs.sort((a, b) => a.ts - b.ts)
+      map[st] = withTs.map((x) => x.lead)
     }
     return map
   }, [filteredLeads])

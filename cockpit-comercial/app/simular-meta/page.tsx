@@ -297,7 +297,7 @@ export default function SimularMetaPage() {
 
   const coverageRate =
     (projection?.goal_brl ?? 0) > 0
-      ? Math.min(1, (projection?.entregue ?? 0) / projection!.goal_brl)
+      ? Math.min(1, (projection?.entregue ?? 0) / (projection?.goal_brl ?? 1))
       : 0
 
   // ── Render ────────────────────────────────────────────────────

@@ -91,14 +91,16 @@ as $$
         and (p_seller_id is null or cib.seller_id = p_seller_id)
     ),
     stage_events as (
+      -- 'fechado' is treated as equivalent to 'ganho' (legacy status name);
+      -- both map to a successful close event in the pipeline.
       select
-        count(*) filter (where e.to_stage in ('respondeu'))    as respondeu_cnt,
-        count(*) filter (where e.to_stage in ('negociacao'))   as negociacao_cnt,
-        count(*) filter (where e.to_stage in ('ganho','fechado')) as ganho_cnt,
-        count(*) filter (where e.to_stage = 'perdido')         as perdido_cnt,
+        count(*) filter (where e.to_stage in ('respondeu'))           as respondeu_cnt,
+        count(*) filter (where e.to_stage in ('negociacao'))          as negociacao_cnt,
+        count(*) filter (where e.to_stage in ('ganho','fechado'))     as ganho_cnt,
+        count(*) filter (where e.to_stage = 'perdido')                as perdido_cnt,
         coalesce(sum(l.deal_value) filter (
           where e.to_stage in ('ganho','fechado')
-        ), 0)                                                  as valor_entregue
+        ), 0)                                                         as valor_entregue
       from public.lead_events e
       join public.leads l on l.id = e.lead_id
       where e.company_id = p_company_id
@@ -337,7 +339,7 @@ begin
     raise exception 'Apenas administradores podem abrir competências.';
   end if;
 
-  v_label := to_char((p_period || '-01')::date, 'Month YYYY');
+  v_label := to_char((p_period || '-01')::date, 'FMMonth YYYY');
 
   -- Desativa competência ativa anterior
   update public.competences
