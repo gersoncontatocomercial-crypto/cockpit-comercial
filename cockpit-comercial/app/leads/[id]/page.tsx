@@ -31,6 +31,7 @@ type LeadRow = {
   created_at: string
   next_action: string | null
   next_contact_at: string | null
+  next_action_channel: string | null
   company_id: string
 }
 
@@ -100,7 +101,7 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
 
   const { data: lead, error: leadError } = await supabase
     .from('leads')
-    .select('id, name, phone, status, created_at, next_action, next_contact_at, company_id')
+    .select('id, name, phone, status, created_at, next_action, next_contact_at, next_action_channel, company_id')
     .eq('id', leadId)
     .eq('company_id', companyId)
     .single<LeadRow>()
@@ -195,7 +196,7 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
           Defina a próxima ação e a data/hora. Isso alimenta a página /agenda.
         </div>
 
-        <NextContactForm leadId={leadId} initialAction={lead.next_action} initialNextContactAt={lead.next_contact_at} />
+        <NextContactForm leadId={leadId} initialAction={lead.next_action} initialNextContactAt={lead.next_contact_at} initialChannel={lead.next_action_channel} />
       </div>
 
       <div style={{ marginTop: 18, padding: 16, border: '1px solid #333', borderRadius: 10, background: '#0f0f0f' }}>

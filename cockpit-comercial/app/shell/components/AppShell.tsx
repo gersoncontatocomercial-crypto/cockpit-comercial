@@ -52,7 +52,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       : pathname?.startsWith('/platform')
       ? 'Configurações'
       : pathname?.startsWith('/simular-meta')
-      ? 'Simular meta'
+      ? 'Simulador de Metas (100/20)'
       : 'Dashboard'
 
   return (
@@ -124,7 +124,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           />
           <NavBtn
             href="/simular-meta"
-            label="Simular meta"
+            label="Simulador (100/20)"
             active={isActive('/simular-meta')}
           />
           <NavBtn
